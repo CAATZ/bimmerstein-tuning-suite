@@ -1,0 +1,32 @@
+include LICENSE
+include BUILDING.md
+include README.md
+include RELEASE_NOTES.md
+include THIRD_PARTY_NOTICES.md
+include pyproject.toml
+
+recursive-include ecueditor *.py
+recursive-include plugins *.py
+recursive-include resources/fonts *.ttf *.txt
+recursive-include resources/icons *.ico *.svg *.txt
+
+prune .*
+prune docs
+prune tests
+prune scripts
+prune packaging
+prune build
+prune build-v2
+prune dist
+prune dist-v2
+prune logs
+
+exclude AGENTS.md
+exclude CONTRIBUTING.md
+exclude NEW_SESSION_HANDOFF.md
+exclude MANIFEST.in
+
+global-exclude *.py[cod]
+global-exclude __pycache__
+global-exclude *.log
+global-exclude *.tmp

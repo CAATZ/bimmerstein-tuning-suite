@@ -1,0 +1,87 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bimmerstein-tuning-suite"
+dynamic = ["version"]
+description = "ECU Calibration and Data Logging"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{name = "CAATZ"}]
+license = "GPL-2.0-or-later"
+license-files = [
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "resources/fonts/OFL.txt",
+    "resources/icons/LICENSE-lucide.txt",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+]
+dependencies = ["numpy>=1.26"]
+
+[project.optional-dependencies]
+gui = ["PySide6>=6.6", "pyqtgraph>=0.13", "matplotlib>=3.8", "numpy>=1.26"]
+comms = ["pyserial>=3.5"]
+d2xx = ["ftd2xx>=1.3"]
+dev = ["pytest>=8", "pytest-qt>=4", "mypy>=1.8", "ruff>=0.4"]
+
+[project.scripts]
+ecueditor-cli = "ecueditor.core.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["ecueditor*"]
+namespaces = false
+
+[tool.setuptools.dynamic]
+version = {attr = "ecueditor.__version__"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["ref_assets: test reads the local MS41 reference corpus and skips if absent"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# Repo-wide: compact one-line style (`if x: y` / `a; b`) used consistently across all phases,
+# including this plan's own embedded cookbook code -- not a defect, an established convention.
+ignore = ["E701", "E702"]
+
+[tool.ruff.lint.per-file-ignores]
+# E402 (module-import-not-at-top): deliberate patterns -- pure helpers/dataclasses defined
+# before an import used only below (core), and Qt-gated / phase-appended imports (tests).
+"ecueditor/core/comms/protocol/ds2.py" = ["E402"]
+"ecueditor/core/comms/transport/base.py" = ["E402"]
+"tests/ui/conftest.py" = ["E402"]
+"tests/ui/test_dyno_tab.py" = ["E402"]
+
+[tool.mypy]
+python_version = "3.11"
+packages = ["ecueditor.core", "ecueditor.ui.design", "ecueditor.ui.workspace", "ecueditor.ui.editor.frames", "ecueditor.ui.logger.gauges"]
+modules = ["ecueditor.ui.dialogs.definition_manager"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "numpy.*"
+follow_imports = "skip"
+follow_imports_for_stubs = true
+
+[[tool.mypy.overrides]]
+# frames/ imports these untyped ui/editor siblings (TableGridModel, TableGridWidget,
+# TableMenuBar, edit_ops, clipboard, table_chooser) purely as consumers; they stay out
+# of the widened gate's scope (Task 16), so silence -- don't fully re-check -- them
+# when mypy follows the import instead of reporting their pre-existing PySide6-stub
+# and Liskov nits against the frames/ gate.
+module = [
+    "ecueditor.ui.editor.table_model",
+    "ecueditor.ui.editor.table_grid",
+    "ecueditor.ui.editor.table_menubar",
+    "ecueditor.ui.editor.edit_ops",
+    "ecueditor.ui.editor.clipboard",
+    "ecueditor.ui.editor.table_chooser",
+]
+follow_imports = "silent"
