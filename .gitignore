@@ -13,6 +13,7 @@ dist/
 .mypy_cache/
 .ruff_cache/
 .tmp/
+/tmp/
 .idea/
 logs/
 *.log

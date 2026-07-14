@@ -44,6 +44,9 @@ for _legal_name in ("LICENSE", "THIRD_PARTY_NOTICES.md", "RELEASE_NOTES.md"):
     _legal_file = ROOT / _legal_name
     if _legal_file.is_file():
         datas.append((str(_legal_file), "."))
+_manual_file = ROOT / "output" / "pdf" / "BimmerStein-Tuning-Suite-User-Manual.pdf"
+if _manual_file.is_file():
+    datas.append((str(_manual_file), "."))
 
 _dependency_licenses_raw = os.environ.get("ECUEDITOR_DEPENDENCY_LICENSES", "")
 if _dependency_licenses_raw:

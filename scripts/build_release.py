@@ -28,15 +28,17 @@ _SOURCE_ROOT_FILES = (
     "BUILDING.md",
     "LICENSE",
     "MANIFEST.in",
+    "output/pdf/BimmerStein-Tuning-Suite-User-Manual.pdf",
     "README.md",
     "RELEASE_NOTES.md",
     "THIRD_PARTY_NOTICES.md",
     "pyproject.toml",
 )
-_SOURCE_TREES = ("ecueditor", "plugins", "resources")
+_SOURCE_TREES = ("ecueditor", "manual", "plugins", "resources")
 _SOURCE_SCRIPTS = (
     "packaging/ecueditor.iss",
     "packaging/ecueditor.spec",
+    "packaging/build_user_manual.py",
     "scripts/__init__.py",
     "scripts/build_app_icon.py",
     "scripts/build_release.py",

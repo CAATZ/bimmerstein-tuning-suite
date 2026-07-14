@@ -1,4 +1,6 @@
 from __future__ import annotations
+from pathlib import Path
+import sys
 from PySide6.QtWidgets import (
     QDockWidget,
     QMainWindow,
@@ -14,6 +16,14 @@ from ecueditor.ui.app import AppServices
 from ecueditor.metadata import PRODUCT_NAME, PRODUCT_TAGLINE
 from ecueditor.ui.workspace.document_area import DocumentArea
 from ecueditor.ui.workspace.document_navigator import DocumentNavigator
+
+
+def _user_manual_path() -> Path:
+    """Return the installed or source-tree user manual path."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent / "BimmerStein-Tuning-Suite-User-Manual.pdf"
+    return Path(__file__).resolve().parents[2] / "output" / "pdf" \
+        / "BimmerStein-Tuning-Suite-User-Manual.pdf"
 
 def _apply_settings_to_grid(grid, settings) -> None:
     """Per-grid projection of user-tunable display settings (theme handles all colors).
@@ -288,11 +298,16 @@ class MainWindow(QMainWindow):
         self._update_window_actions(0)
 
         self.menu_help = mb.addMenu("&Help")
+        self.action_user_manual = QAction("&User Manual", self)
+        self.action_user_manual.triggered.connect(self._open_user_manual)
         act_about = QAction(f"&About {PRODUCT_NAME}", self)
         act_about.triggered.connect(self._show_about)
         act_keys = QAction("&Keyboard Shortcuts", self)
         act_keys.triggered.connect(self._show_shortcuts)
-        self.menu_help.addAction(act_about); self.menu_help.addAction(act_keys)
+        self.menu_help.addAction(self.action_user_manual)
+        self.menu_help.addAction(act_keys)
+        self.menu_help.addSeparator()
+        self.menu_help.addAction(act_about)
 
     def _update_window_actions(self, count: int) -> None:
         has_documents = count > 0
@@ -1043,3 +1058,19 @@ class MainWindow(QMainWindow):
             "  Shift+V           Vertical Interpolate (3D)\n"
             "  + / _             Increment / Decrement (coarse)\n"
             "  *                 Multiply")
+
+    def _open_user_manual(self) -> None:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtWidgets import QMessageBox
+
+        manual = _user_manual_path()
+        if not manual.is_file():
+            QMessageBox.warning(
+                self,
+                "User Manual",
+                f"The user manual could not be found:\n{manual}",
+            )
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(manual))):
+            QMessageBox.warning(self, "User Manual", f"Could not open:\n{manual}")

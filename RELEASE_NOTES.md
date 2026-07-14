@@ -21,6 +21,13 @@ and MS41 files before the first stable release.
 - The Windows executables are not code-signed, so Windows may display an unknown-publisher warning.
 - Flashing, Subaru SSM, OBD-II/ELM327, J2534, and Bluetooth transports are not implemented.
 
+## Documentation
+
+- A complete 16-page user manual is included as a PDF and is also available in web-readable
+  Markdown.
+- Open the installed PDF directly from **Help > User Manual**.
+- Manual screenshots use synthetic demonstration data; no production ROM or definition is bundled.
+
 ## Useful bug-report details
 
 Please include the ECU/ROM version, Windows version, display scaling percentage, application theme,

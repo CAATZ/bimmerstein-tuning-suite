@@ -83,6 +83,8 @@ For Windows executable and installer builds, see [BUILDING.md](BUILDING.md).
 
 ## Documentation and support
 
+- [User manual (PDF)](output/pdf/BimmerStein-Tuning-Suite-User-Manual.pdf)
+- [User manual (web-readable Markdown)](manual/USER_MANUAL.md)
 - [Build and release instructions](BUILDING.md)
 - [Beta release notes](RELEASE_NOTES.md)
 - [Third-party notices](THIRD_PARTY_NOTICES.md)
