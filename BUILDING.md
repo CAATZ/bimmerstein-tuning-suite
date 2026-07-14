@@ -36,11 +36,10 @@ it. Distribute the complete portable ZIP or installer, not `BimmerStein-Tuning-S
 
 ## Verification
 
-```powershell
-python scripts/check.py
-python scripts/check.py --links
-python scripts/check.py --frontmatter
-```
+The corresponding-source archive contains the application and every input needed to rebuild the
+release. Development-only tests and internal project records are not part of that distribution
+archive.
 
-Before publishing a build, inspect the payloads, launch the portable executable, test the installer and
-uninstaller on a clean Windows account, and verify every file listed in `SHA256SUMS.txt`.
+Before publishing a build, maintainers run the complete automated test suite, inspect the payloads,
+launch the portable executable, test the installer and uninstaller, and verify every file listed in
+`SHA256SUMS.txt`.

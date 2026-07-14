@@ -40,7 +40,6 @@ _SOURCE_SCRIPTS = (
     "scripts/__init__.py",
     "scripts/build_app_icon.py",
     "scripts/build_release.py",
-    "scripts/check.py",
     "scripts/collect_dependency_licenses.py",
 )
 _EXCLUDED_PARTS = {

@@ -2,93 +2,105 @@
 
 **ECU Calibration and Data Logging**
 
-An independent Python + PySide6 ROM calibration editor, live logger, and virtual dyno with RomRaider-compatible
-formats and workflows, built first for the BMW MS41 ECU. It has its own Git history and architecture;
-it is not a Git fork of RomRaider. It is read-only toward the ECU: it edits definitions and calibration
-data on disk and reads live data over a transport, but it does not write/flash the ECU.
+BimmerStein Tuning Suite is a Windows desktop application for editing ECU calibration files,
+viewing live data, recording logs, and performing virtual-dyno analysis. Development currently
+focuses on the BMW MS41 ECU, while the definition and plugin architecture is designed to support
+additional platforms.
 
-## Screenshots
+This is an independent project. It supports RomRaider-compatible definition formats and familiar
+calibration workflows, but it is not a Git fork of RomRaider.
 
-<!-- TODO: editor window, logger dashboard, dyno tab -->
+## Beta release
 
-Screenshots are not committed yet. When captured, they will live under `resources/screenshots/`.
+The current testing version is **0.1.0 Beta 1** (`v0.1.0b1`). It is intended for testing and
+feedback, not production use.
 
-## Install
+[Download BimmerStein Tuning Suite 0.1.0 Beta 1](https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b1)
 
-Windows, Python 3.11:
+The release provides:
+
+- A Windows installer (`Windows-x64-Setup.exe`).
+- A portable Windows ZIP containing the application and its runtime files.
+- A corresponding-source ZIP.
+- SHA-256 checksums and an exact build-environment inventory.
+
+The executable in the portable package requires the DLLs and resources beside it. Extract the
+complete ZIP before running it. The executables are not code-signed, so Windows may display an
+unknown-publisher warning.
+
+## Current capabilities
+
+- Open calibration BIN files using user-supplied RomRaider-compatible XML definitions.
+- Edit scalar values, switches, table values, and table axes.
+- Propagate edits across tables that share the same physical axis data.
+- Copy, paste, interpolate, compare, undo, and create revert points.
+- Inspect parameter descriptions, storage addresses, scaling, ranges, and related metadata.
+- Use small, medium, or large table windows with compact or normal table density.
+- Poll and record DS2 live data through supported serial transports.
+- Display live data in tables, graphs, gauges, and dashboards.
+- Perform virtual-dyno analysis from recorded data.
+- Extend supported transports, protocols, definitions, checksums, analyses, and memory models
+  through plugins.
+
+## Important safety information
+
+- Always keep an untouched backup of every BIN file.
+- Verify saved files before using them with any external flashing software.
+- BimmerStein Tuning Suite does **not** flash or write to an ECU. It edits files on disk and reads
+  live ECU data.
+- Definition XML files are supplied by the user and are not included with the application.
+- Flashing, Subaru SSM, generic OBD-II/ELM327, J2534, and Bluetooth transports are not implemented.
+
+DS2 live-data polling has been exercised on hardware. Beta testing is still needed across more ECU
+versions, interfaces, Windows configurations, and display-scaling settings. Multi-byte logger
+channels should be checked carefully because channel definitions may require explicit endianness.
+
+## Run from source
+
+Use 64-bit Python 3.11 or newer on Windows:
 
 ```powershell
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -e .[gui,comms]
-```
-
-Extras (from `pyproject.toml`):
-
-- `gui` — PySide6 + pyqtgraph + Matplotlib + numpy; required to run the editor/logger/dyno windows.
-- `comms` — pyserial; required for serial-based ECU transports.
-- `d2xx` (optional) — ftd2xx; only needed for FTDI D2XX-based transports.
-- `dev` — pytest, pytest-qt, mypy, ruff; needed to run the test suite and health gate below.
-
-## Run
-
-GUI app:
-
-```powershell
+python -m pip install --upgrade pip
+python -m pip install -e ".[gui,comms]"
 python -m ecueditor
 ```
 
-Headless CLI:
+The optional `d2xx` dependency adds FTDI D2XX transport support:
+
+```powershell
+python -m pip install -e ".[gui,comms,d2xx]"
+```
+
+The headless command-line entry point is available as:
 
 ```powershell
 ecueditor-cli --help
 ```
 
-(Both are entry points declared in `pyproject.toml`: `python -m ecueditor` runs
-`ecueditor/__main__.py`; `ecueditor-cli` maps to `ecueditor.core.cli:main`.)
+For Windows executable and installer builds, see [BUILDING.md](BUILDING.md).
 
-## Run the tests
+## Documentation and support
 
-```powershell
-python -m pytest -q
-```
+- [Build and release instructions](BUILDING.md)
+- [Beta release notes](RELEASE_NOTES.md)
+- [Third-party notices](THIRD_PARTY_NOTICES.md)
+- [GNU GPL license](LICENSE)
+- [Report a bug or request a feature](https://github.com/CAATZ/bimmerstein-tuning-suite/issues)
 
-Tests marked `ref_assets` read the local MS41 reference corpus (bins/defs from the sibling
-MS41 Projects repo) and skip automatically if that corpus is absent.
-
-One-shot health gate (ruff + mypy + pytest + core-purity check):
-
-```powershell
-python scripts/check.py
-```
-
-## Documentation
-
-- [Implementation roadmap](docs/superpowers/plans/ROADMAP.md)
-- [Architecture](docs/architecture.md)
-- [Build and beta release](BUILDING.md)
-- [Handoff guide](docs/handoff-guide.md)
-- [Contributing](CONTRIBUTING.md)
-- [Design spec](docs/superpowers/specs/2026-07-07-ecu-editor-design.md)
+Useful bug reports include the ECU/ROM version, Windows version, display-scaling percentage,
+application theme, definition-file version, affected table or parameter, exact reproduction steps,
+and screenshots when applicable. Do not attach proprietary or personal files unless you intend to
+share them.
 
 ## License and provenance
 
-BimmerStein Tuning Suite is free software distributed under the GNU General Public License, version 2 or (at your
-option) any later version (`GPL-2.0-or-later`). See [LICENSE](LICENSE) for the complete terms.
-Copyright (C) 2026 CAATZ and contributors.
+BimmerStein Tuning Suite is free software distributed under the GNU General Public License,
+version 2 or, at your option, any later version (`GPL-2.0-or-later`). See [LICENSE](LICENSE) for the
+complete terms. Copyright (C) 2026 CAATZ and contributors.
 
-Some implementation, especially the virtual-dyno physics formulas, is adapted from RomRaider. Other
-parts implement compatible public formats or documented behavior without sharing RomRaider's Git
-history. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for exact source references, retained
-copyright notices, and the separately licensed bundled font.
-
-The current testing line is **0.1.0 Beta 1** (`0.1.0b1`). Beta builds are non-production releases:
-keep untouched BIN backups and review [RELEASE_NOTES.md](RELEASE_NOTES.md) before testing.
-
-## Status / scope
-
-Read-only toward the ECU: flashing, SSM, and OBD are reserved plugin slots, not implemented.
-Live logging is replay- and capture-proven only so far. The pre-hardware hardening and logger-window
-teardown work are complete; the first real K-line session must still validate framing and individual
-multi-byte channel endianness on hardware. See [`docs/backlog.md`](docs/backlog.md) for the remaining
-validation work, deferred features, and reserved scope.
+Some implementation, especially the virtual-dyno physics formulas, is adapted from RomRaider.
+Other parts implement compatible public formats or documented behavior without sharing RomRaider's
+Git history. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for source references, retained
+copyright notices, and separately licensed bundled resources.
