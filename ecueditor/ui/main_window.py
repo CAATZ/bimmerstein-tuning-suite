@@ -1,6 +1,7 @@
 from __future__ import annotations
+import logging
 from pathlib import Path
-import sys
+from typing import TYPE_CHECKING, Any
 from PySide6.QtWidgets import (
     QDockWidget,
     QMainWindow,
@@ -13,17 +14,20 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtCore import Qt, QSize, QTimer
 from ecueditor.ui.app import AppServices
-from ecueditor.metadata import PRODUCT_NAME, PRODUCT_TAGLINE
+from ecueditor.metadata import PRODUCT_NAME, PRODUCT_TAGLINE, display_version
+from ecueditor.runtime_paths import user_manual_path
 from ecueditor.ui.workspace.document_area import DocumentArea
 from ecueditor.ui.workspace.document_navigator import DocumentNavigator
+
+_log = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from ecueditor.core.rom.image import RomImage
 
 
 def _user_manual_path() -> Path:
     """Return the installed or source-tree user manual path."""
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent / "BimmerStein-Tuning-Suite-User-Manual.pdf"
-    return Path(__file__).resolve().parents[2] / "output" / "pdf" \
-        / "BimmerStein-Tuning-Suite-User-Manual.pdf"
+    return user_manual_path()
 
 def _apply_settings_to_grid(grid, settings) -> None:
     """Per-grid projection of user-tunable display settings (theme handles all colors).
@@ -37,21 +41,20 @@ def _apply_settings_to_grid(grid, settings) -> None:
     density = getattr(settings, "table_density", "normal")
     compact = density == "compact"
     font_size = max(7, settings.font_size - 3) if compact else settings.font_size
-    cell_width = max(28, round(settings.cell_width * 0.72)) if compact else settings.cell_width
-    cell_height = (max(14, round(settings.cell_height * 0.72))
-                   if compact else settings.cell_height)
+    cell_width = 30 if compact else 42
+    cell_height = 14 if compact else 18
     vertical_padding = 2 if compact else 12
     font = numeric_font(font_size)
     grid.model().set_colormap(getattr(settings, "colormap", "rainbow"))
     grid.set_color_cells(settings.color_cells)
-    grid.set_density(density)
-    grid.setFont(font)
     fm = QFontMetrics(font)
     row_h = max(cell_height, fm.height() + vertical_padding)
-    grid.verticalHeader().setDefaultSectionSize(row_h)
-    grid.horizontalHeader().setDefaultSectionSize(cell_width)
-    grid.autofit_columns(cell_width)
-    grid.updateGeometry()
+    grid.configure_display(
+        font=font,
+        density=density,
+        row_height=row_h,
+        minimum_column_width=cell_width,
+    )
     parent = grid.parentWidget()
     if parent is not None:
         layout = parent.layout()
@@ -67,15 +70,14 @@ class MainWindow(QMainWindow):
         self._logger_window = None             # single live logger window (Phase 6b)
         self._enable3d_connection = None        # tracked 3D-action connection (H8: no bare disconnect)
         self._inspector_connection = None       # tracked selectionModel().currentChanged rebind
+        self._selected_rom = None               # last explicit tree/document ROM selection
+        self._reloading_rom = False             # suppress edit routing during model reset on F5
+        self._open_frames: dict[tuple[object, ...], Any] = {}
         self.setWindowTitle(PRODUCT_NAME)
         from ecueditor.ui.design.icons import icon
         self.setWindowIcon(icon("app"))               # spec §3: the app finally has a window icon
         self.documents = DocumentArea()
         self.documents.documentClosed.connect(self._on_document_closed)
-        self.documents.set_editor_window_size(
-            getattr(services.settings, "editor_window_size", "medium")
-            if services.settings else "medium"
-        )
         self.document_navigator = DocumentNavigator(self.documents)
         workspace = QWidget(self)
         workspace.setObjectName("workspaceHost")
@@ -128,11 +130,16 @@ class MainWindow(QMainWindow):
                     f"Discard unsaved changes in {len(dirty)} ROM(s) and quit?") \
                     != QMessageBox.StandardButton.Yes:
                 event.ignore(); return
+        if any(
+            not self.documents.can_close_document(document)
+            for document in self.documents.documents()
+        ):
+            event.ignore(); return
         s = self._services.settings
         if s is not None:
             s.ui_state = {
-                "geometry": bytes(self.saveGeometry().toBase64()).decode("ascii"),
-                "window_state": bytes(self.saveState().toBase64()).decode("ascii"),
+                "geometry": bytes(self.saveGeometry().toBase64().data()).decode("ascii"),
+                "window_state": bytes(self.saveState().toBase64().data()).decode("ascii"),
                 "workspace_mode": self.documents.workspace_mode(),
             }
             from ecueditor.core.settings import save_settings
@@ -160,7 +167,11 @@ class MainWindow(QMainWindow):
         self.action_save = QAction("&Save", self, shortcut=QKeySequence("Ctrl+S"))
         self.action_save_as = QAction("Save &As…", self, shortcut=QKeySequence("Ctrl+Shift+S"))
         self.action_close = QAction("&Close ROM", self, shortcut=QKeySequence("Ctrl+W"))
-        self.action_refresh = QAction("&Refresh", self, shortcut=QKeySequence("F5"))
+        self.action_refresh = QAction("&Reload ROM from Disk", self, shortcut=QKeySequence("F5"))
+        self.action_refresh.setToolTip("Reload ROM from Disk (F5)")
+        self.action_refresh.setStatusTip(
+            "Reload the selected ROM from its source file. Unsaved changes require confirmation."
+        )
         self.action_quit = QAction("E&xit", self, shortcut=QKeySequence("Ctrl+Q"))
         self.action_settings = QAction("&Settings…", self)
         self.action_def_manager = QAction("&Definition Manager…", self)
@@ -334,11 +345,14 @@ class MainWindow(QMainWindow):
         others = [document for document in self.documents.documents() if document is not active]
         if active is None or not others:
             hint = menu.addAction("Open at least two windows")
-            hint.setEnabled(False)
+            if hint is not None:
+                hint.setEnabled(False)
             return
         for document in others:
             title = self.documents.document_title(document)
             action = menu.addAction(title)
+            if action is None:
+                continue
             window = self.documents.window_for_document(document)
             if window is not None:
                 action.setIcon(window.windowIcon())
@@ -450,6 +464,7 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.rom_dock)
         self.rom_tree.files_dropped.connect(self.open_files)
         self.action_open.triggered.connect(self._on_open_action)
+        self.rom_tree.rom_selected.connect(self._on_rom_selected)
         self.rom_tree.table_activated.connect(self._on_table_activated)
         self.action_compare_images.triggered.connect(self._open_compare_images)
         self.rom_tree.rom_opened.connect(lambda rom: self._update_status_chips())
@@ -474,6 +489,13 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self.xmlid_chip)
         self.statusBar().addPermanentWidget(self.level_chip)
         self._update_status_chips()
+        failures = self._services.plugin_failures
+        if failures:
+            noun = "plugin" if len(failures) == 1 else "plugins"
+            self.statusBar().showMessage(
+                f"{len(failures)} {noun} failed to load; hover for details"
+            )
+            self.statusBar().setToolTip("Plugin load failures:\n" + "\n".join(failures))
 
     # --- state ---------------------------------------------------------------
     def _update_rom_actions(self, active: bool) -> None:
@@ -482,13 +504,24 @@ class MainWindow(QMainWindow):
 
     # --- save / checksum status -----------------------------------------------
     def _active_rom(self):
+        roms = self.rom_tree.roms()
+        if self._selected_rom is not None and any(
+                candidate is self._selected_rom for candidate in roms):
+            return self._selected_rom
         doc = self.documents.active_document()
         if doc is not None and hasattr(doc, "rom"):
             return doc.rom
         # No active frame: only unambiguous when exactly one ROM is open. With 2+ ROMs open and
         # nothing focused, guessing (e.g. tree order) risks saving/closing/refreshing the wrong one.
-        roms = self.rom_tree._roms
         return roms[0] if len(roms) == 1 else None
+
+    def _on_rom_selected(self, rom) -> None:
+        """Make a tree click the target for ROM-wide commands such as Close ROM."""
+        self._selected_rom = rom
+        if self._logger_window is not None:
+            self._logger_window.set_active_rom(rom)
+        self._update_status_chips(rom)
+        self._update_window_title()
 
     def _update_status_chips(self, rom=None) -> None:
         # rom=None means "look it up" (rom_opened/save/close/refresh call sites); an explicit rom
@@ -514,7 +547,7 @@ class MainWindow(QMainWindow):
         dirty = " ●" if rom.is_dirty() else ""
         self.setWindowTitle(f"{PRODUCT_NAME} — {label}{dirty}")
 
-    def _refresh_rom_views(self, rom) -> None:
+    def _refresh_rom_views(self, rom: RomImage, *, after_reload: bool = False) -> None:
         # Repaint every open grid of the saved ROM: save()'s flush() re-syncs aliased tables and
         # moves the revert point, so stale pre-resync values / change borders must be cleared.
         for doc in self.documents.documents():
@@ -522,6 +555,10 @@ class MainWindow(QMainWindow):
                 continue
             grid = getattr(doc, "grid", None)
             if grid is not None:
+                if after_reload:
+                    grid.model().clear_undo_history()
+                    grid.clear_last_paste()
+                    grid.set_live_value(None)
                 grid.model().beginResetModel()
                 grid.model().endResetModel()
             elif hasattr(doc, "refresh"):
@@ -536,6 +573,35 @@ class MainWindow(QMainWindow):
                 self.documents.set_document_dirty(doc, table.is_changed())
                 # ...and the tree leaf's dirty dot to match (Task 15).
                 self.rom_tree.set_dirty(rom, table.name, table.is_changed())
+            if after_reload:
+                handle_reload = getattr(doc, "handle_rom_reloaded", None)
+                if callable(handle_reload):
+                    handle_reload()
+        if after_reload:
+            # Comparisons can target a table in another ROM. Reloading that reference
+            # bypasses the normal edit signal, so invalidate every dependent open model.
+            changed_tables = frozenset(rom.tables.values())
+            for doc in self.documents.documents():
+                grid = getattr(doc, "grid", None)
+                if grid is not None:
+                    grid.model().refresh_compare_reference(changed_tables)
+
+    def _retitle_rom_documents(self, rom: RomImage) -> None:
+        """Keep every open document title in sync after a successful Save As."""
+        label = Path(rom.path).name if rom.path else rom.definition.romid.xmlid
+        for doc in self.documents.documents():
+            if getattr(doc, "rom", None) is not rom:
+                continue
+            table = getattr(doc, "table", None)
+            if table is None:
+                continue
+            window = self.documents.window_for_document(doc)
+            kind = str(window.property("documentKind")) if window is not None else ""
+            qualifier = {
+                "mapstudio": " (Map Studio)",
+                "surface": " (3D)",
+            }.get(kind, "")
+            self.documents.set_document_title(doc, f"{table.name}{qualifier} — {label}")
 
     def save_active_rom(self, *, save_as: bool) -> None:
         from PySide6.QtWidgets import QFileDialog, QMessageBox
@@ -562,6 +628,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Save failed", f"{target}:\n{exc}")
             return
         self._refresh_rom_views(rom)
+        self._retitle_rom_documents(rom)
         self.rom_tree.refresh_rom_status(rom)     # re-read checksum_report() -- ✗ badge post-save
         self.rom_tree._refresh_rom_label(rom)
         self._update_status_chips()
@@ -580,12 +647,19 @@ class MainWindow(QMainWindow):
             if QMessageBox.question(self, "Close ROM", f"Discard unsaved changes to {label}?") \
                     != QMessageBox.StandardButton.Yes:
                 return
-        for doc in [d for d in self.documents.documents() if getattr(d, "rom", None) is rom]:
-            self.documents.close_document(doc)
+        rom_documents = [
+            d for d in self.documents.documents() if getattr(d, "rom", None) is rom
+        ]
+        if any(not self.documents.can_close_document(doc) for doc in rom_documents):
+            return
+        for doc in rom_documents:
+            self.documents.close_document(doc, force=True)
         if hasattr(self, "_open_frames"):
             for key in [k for k in self._open_frames if k[0] == id(rom)]:
                 del self._open_frames[key]
         self.rom_tree.remove_rom(rom)
+        if self._selected_rom is rom:
+            self._selected_rom = None
         if not self.rom_tree._roms:
             self._update_rom_actions(active=False)
         self._update_status_chips()
@@ -593,23 +667,85 @@ class MainWindow(QMainWindow):
 
     def _on_document_closed(self, document) -> None:
         """Release shell and logger references as soon as an MDI child closes."""
+        teardown = getattr(document, "teardown", None)
+        if callable(teardown):
+            teardown()
+        else:
+            unbind = getattr(document, "unbind_source_grid", None)
+            if callable(unbind):
+                unbind()
         grid = getattr(document, "grid", None)
         if self._logger_window is not None and grid is not None:
             self._logger_window.unregister_editor_table(grid)
+        if grid is not None:
+            for other in self.documents.documents():
+                other_unbind = getattr(other, "unbind_source_grid", None)
+                if callable(other_unbind):
+                    other_unbind(grid)
         if hasattr(self, "_open_frames"):
             for key, value in list(self._open_frames.items()):
                 if value is document:
                     del self._open_frames[key]
 
     def _refresh_active_rom(self) -> None:
+        from PySide6.QtWidgets import QMessageBox
+
         rom = self._active_rom()
         if rom is None:
-            self.statusBar().showMessage("Select a ROM window to refresh", 5000)
+            self.statusBar().showMessage("Select a ROM window to reload", 5000)
             return
-        # Display refresh only (re-syncs open grids + checksum label); whether RomRaider's Refresh
-        # also reloads the image from disk is a recorded backlog question (docs/backlog.md).
-        self._refresh_rom_views(rom)
-        self._update_status_chips()
+        if rom.path is None:
+            QMessageBox.critical(
+                self,
+                "Reload failed",
+                "This ROM has no source file. Save it before reloading from disk.",
+            )
+            return
+
+        path = Path(rom.path)
+        label = path.name
+        if not path.is_file():
+            QMessageBox.critical(
+                self,
+                "Reload failed",
+                f"The source file no longer exists:\n{path}\n\n"
+                "The open ROM and any unsaved changes were left untouched.",
+            )
+            return
+        if rom.is_dirty():
+            answer = QMessageBox.question(
+                self,
+                "Reload ROM from disk?",
+                f"Reload {label} from disk and discard all unsaved changes? "
+                "This cannot be undone.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+        try:
+            rom.reload_from_disk()
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Reload failed",
+                f"Could not reload {path}:\n{exc}\n\n"
+                "The open ROM and any unsaved changes were left untouched.",
+            )
+            return
+
+        self._reloading_rom = True
+        try:
+            self._refresh_rom_views(rom, after_reload=True)
+        finally:
+            self._reloading_rom = False
+        self.rom_tree.clear_dirty(rom)
+        self.rom_tree.refresh_rom_status(rom)
+        self.rom_tree._refresh_rom_label(rom)
+        self._update_status_chips(rom)
+        self._update_window_title()
+        self.statusBar().showMessage(f"Reloaded {label} from disk", 5000)
 
     def _on_open_action(self) -> None:
         from PySide6.QtWidgets import QFileDialog
@@ -620,15 +756,43 @@ class MainWindow(QMainWindow):
     def open_files(self, paths) -> None:
         from ecueditor.core.rom.image import RomImage
         from ecueditor.core.errors import NoMatchingRomError
+        from PySide6.QtWidgets import QMessageBox
         for p in paths:
+            rom = None
             try:
-                rom = RomImage.open(p, self._services.library)
-            except NoMatchingRomError:
-                rom = self._force_load(p)          # spec §5.1: offer manual definition pick
+                try:
+                    rom = RomImage.open(
+                        p,
+                        self._services.library,
+                        settings=self._services.settings,
+                    )
+                except NoMatchingRomError:
+                    rom = self._force_load(p)      # spec §5.1: offer manual definition pick
                 if rom is None:
                     continue
-            self.rom_tree.add_rom(rom)
-            self._update_rom_actions(active=True)
+                self.rom_tree.add_rom(rom)
+                self._update_rom_actions(active=True)
+            except Exception as exc:
+                if rom is not None and any(
+                    candidate is rom for candidate in self.rom_tree.roms()
+                ):
+                    try:
+                        self.rom_tree.remove_rom(rom)
+                    except Exception:
+                        # Preserve per-file isolation even if a failing add also leaves the
+                        # tree unable to rebuild while rolling its partial registration back.
+                        self.rom_tree._roms = [
+                            candidate
+                            for candidate in self.rom_tree._roms
+                            if candidate is not rom
+                        ]
+                    self._update_rom_actions(active=bool(self.rom_tree.roms()))
+                QMessageBox.critical(
+                    self,
+                    "Open ROM failed",
+                    f"Could not open {p}:\n{exc}",
+                )
+                continue
 
     def _candidate_xmlids(self) -> list[str]:
         from ecueditor.core.defs.parser import parse_definition_file
@@ -652,7 +816,12 @@ class MainWindow(QMainWindow):
             return None
         dlg = ForceLoadDialog(xmlids, self)
         if dlg.exec() and dlg.selected_xmlid():
-            return RomImage.force_open(path, self._services.library, dlg.selected_xmlid())
+            return RomImage.force_open(
+                path,
+                self._services.library,
+                dlg.selected_xmlid(),
+                settings=self._services.settings,
+            )
         return None
 
     # --- table sub-windows -----------------------------------------------------
@@ -665,8 +834,6 @@ class MainWindow(QMainWindow):
         from ecueditor.ui.design.icons import icon
         from pathlib import Path
         key = (id(rom), name)
-        if not hasattr(self, "_open_frames"):
-            self._open_frames = {}
         existing = self._open_frames.get(key)
         if existing is not None and existing in self.documents.documents():
             self.documents.set_active_document(existing); return
@@ -678,7 +845,10 @@ class MainWindow(QMainWindow):
         # activation happened to rebind the toolbar.
         from ecueditor.core.rom.table import Table3D
         if isinstance(doc.table, Table3D):
-            doc._open_3d = lambda _checked=False, d=doc: self._open_3d_view(d)
+            setattr(doc, "_open_3d", lambda _checked=False, d=doc: self._open_3d_view(d))
+        menubar = getattr(doc, "menubar", None)
+        if menubar is not None and hasattr(menubar, "mapStudioRequested"):
+            menubar.mapStudioRequested.connect(lambda d=doc: self._open_map_studio(d))
         grid = getattr(doc, "grid", None)
         # Finalize font, row, and column metrics before DocumentArea asks for sizeHint().
         # Applying these after add_document made the MDI window fit the constructor's 42 px
@@ -693,12 +863,6 @@ class MainWindow(QMainWindow):
         self.documents.add_document(
             doc, f"{name} — {label}", icon=tab_icon, workspace_kind=workspace_kind
         )
-        # Parenting/polishing the document inside QMdiArea can re-project the application font
-        # onto the table view. Reapply the same final metrics after insertion: because the
-        # pre-insertion pass already sized every section, this preserves the content-sized MDI
-        # geometry while keeping the user's numeric font authoritative.
-        if self._services.settings is not None and grid is not None:
-            _apply_settings_to_grid(grid, self._services.settings)
         self._open_frames[key] = doc
 
         frame = getattr(doc, "frame", None)
@@ -713,18 +877,87 @@ class MainWindow(QMainWindow):
         grid = getattr(doc, "grid", None)
         if grid is not None:
             model = grid.model()
-            model.dataChanged.connect(lambda *_a, d=doc: self._on_document_edited(d))
-            model.headerDataChanged.connect(lambda *_a, d=doc: self._on_document_edited(d))
-            model.modelReset.connect(lambda d=doc: self._on_document_edited(d))
+            edit_committed = getattr(model, "editCommitted", None)
+            if edit_committed is not None:
+                edit_committed.connect(lambda d=doc: self._on_document_edited(d))
+            else:
+                # Compatibility for models predating semantic edit commits. Paint-only role
+                # notifications must never traverse storage aliases or rebuild a 3D surface.
+                model.dataChanged.connect(
+                    lambda _top, _bottom, roles, d=doc:
+                    self._on_grid_data_changed(d, roles)
+                )
+                model.headerDataChanged.connect(
+                    lambda *_a, d=doc: self._on_document_edited(d)
+                )
+                model.modelReset.connect(lambda d=doc: self._on_document_edited(d))
         else:
             body = getattr(doc, "body", None)
             if body is not None and hasattr(body, "edited"):
                 body.edited.connect(lambda d=doc: self._on_document_edited(d))
+        self._rebind_open_3d_view(doc)
+
+    def _on_grid_data_changed(self, doc, roles=()) -> None:
+        """Legacy edit routing that rejects palette and other paint-only changes."""
+        if roles and not any(
+            role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole)
+            for role in roles
+        ):
+            return
+        self._on_document_edited(doc)
+
+    def _open_map_studio(self, doc) -> None:
+        """Open one native Map Studio document for the source table."""
+        key = (id(doc.rom), doc.table.name, "mapstudio")
+        existing = self._open_frames.get(key)
+        if existing is not None and existing in self.documents.documents():
+            self.documents.set_active_document(existing)
+            return
+
+        from ecueditor.ui.design.icons import icon
+        from ecueditor.ui.mapstudio.document import MapStudioDocument
+
+        selection = [doc.grid.model().cell_xy(index) for index in doc.grid.selectedIndexes()]
+        studio = MapStudioDocument(
+            doc.rom,
+            doc.table,
+            initial_selection=selection,
+            display_settings=self._services.settings,
+        )
+        studio.applyRequested.connect(
+            lambda proposal, target=studio: self._apply_map_studio(target, proposal)
+        )
+        label = Path(doc.rom.path).name if doc.rom.path else doc.rom.definition.romid.xmlid
+        self.documents.add_document(
+            studio,
+            f"{doc.table.name} (Map Studio) — {label}",
+            icon=icon("interpolate"),
+            workspace_kind="mapstudio",
+        )
+        self._open_frames[key] = studio
+
+    def _apply_map_studio(self, studio, proposal) -> None:
+        """Commit a Studio proposal through the opening table's normal edit model."""
+        key = (id(studio.rom), studio.table.name)
+        source = self._open_frames.get(key)
+        if source is None or source not in self.documents.documents():
+            self.open_table(studio.rom, studio.table.name)
+            source = self._open_frames.get(key)
+        if source is None or source.grid is None:
+            return
+
+        model = source.grid.model()
+        changed = model.apply_quantized(proposal)
+        studio.accept_applied(changed=changed)
+        if changed and getattr(model, "editCommitted", None) is None:
+            self._on_document_edited(source)
+        self.documents.set_active_document(studio)
 
     def _open_3d_view(self, doc) -> None:
         key = (id(doc.rom), doc.table.name, "3d")
         existing = self._open_frames.get(key)
         if existing is not None and existing in self.documents.documents():
+            existing.bind_source_grid(doc.grid)
             self.documents.set_active_document(existing); return
         try:
             from ecueditor.ui.editor.surface3d import Surface3DView
@@ -735,7 +968,8 @@ class MainWindow(QMainWindow):
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.information(self, "3D View", f"3D view unavailable: {exc}")
             return
-        view.rom = doc.rom; view.table = doc.table
+        setattr(view, "rom", doc.rom)
+        setattr(view, "table", doc.table)
         from ecueditor.ui.design.icons import icon
         from pathlib import Path
         label = Path(doc.rom.path).name if doc.rom.path else doc.rom.definition.romid.xmlid
@@ -744,44 +978,74 @@ class MainWindow(QMainWindow):
             workspace_kind="surface",
         )
         self._open_frames[key] = view
-        grid = doc.grid
-        m = grid.model()
-        view.bind_source_model(m)
-        m.dataChanged.connect(view._on_source_data_changed)
-        m.headerDataChanged.connect(view._on_source_data_changed)
-        m.modelReset.connect(view._on_source_data_changed)          # Fix 2: refresh on reset too
-        grid.selectionModel().currentChanged.connect(view._on_source_selection_changed)
+        view.bind_source_grid(doc.grid)
+
+    def _rebind_open_3d_view(self, doc) -> None:
+        """Reconnect a surviving 3D document when its table grid is reopened."""
+        if not hasattr(self, "_open_frames"):
+            return
+        key = (id(doc.rom), doc.table.name, "3d")
+        view = self._open_frames.get(key)
+        if view is not None and view in self.documents.documents():
+            view.bind_source_grid(doc.grid)
 
     def _on_document_edited(self, doc) -> None:
+        if self._reloading_rom:
+            return
         # RomRaider semantics: a storage edit updates every table/axis alias in the ROM. The
         # core has already synchronized their DataCells; repaint any other open views that
         # overlap this table's data or axes. Guard the signals emitted by refresh_from_table()
         # so they update dirty state without recursively walking the same alias set.
+        aliases = doc.rom.storage_aliases(doc.table)
         if not getattr(self, "_refreshing_storage_aliases", False):
             self._refreshing_storage_aliases = True
             try:
-                aliases = doc.rom.storage_aliases(doc.table)
                 for other in self.documents.documents():
                     if other is doc or getattr(other, "rom", None) is not doc.rom:
                         continue
-                    if getattr(other, "table", None) not in aliases:
+                    other_table = getattr(other, "table", None)
+                    if other_table is None or other_table not in aliases:
                         continue
                     grid = getattr(other, "grid", None)
                     if grid is not None:
+                        # This model did not author the edit. Its incremental history may
+                        # contain older values for the same physical bytes and must not be able
+                        # to overwrite the newer alias edit on a later Undo.
+                        grid.model().clear_undo_history()
                         grid.model().refresh_from_table()
+                    elif hasattr(other, "queue_refresh"):
+                        other.queue_refresh()
                     elif hasattr(other, "refresh"):
                         other.refresh()
+                    elif hasattr(other, "refresh_stale_state"):
+                        other.refresh_stale_state()
                     body = getattr(other, "body", None)
                     resync = getattr(body, "resync_from_table", None) if body is not None else None
                     if resync is not None:
                         resync()
+                    other_rom = getattr(other, "rom", None)
+                    if other_rom is None:
+                        continue
+                    primary_key = (id(other_rom), other_table.name)
+                    if self._open_frames.get(primary_key) is other:
+                        self.documents.set_document_dirty(other, other_table.is_changed())
             finally:
                 self._refreshing_storage_aliases = False
+        # A comparison target may live in another ROM and therefore is not a storage alias.
+        # Its color normalization still depends on this reference table's current values.
+        for other in self.documents.documents():
+            grid = getattr(other, "grid", None)
+            if grid is not None:
+                grid.model().refresh_compare_reference(aliases)
+        for table in aliases:
+            self.rom_tree.set_dirty(doc.rom, table.name, table.is_changed())
         self.documents.set_document_dirty(doc, doc.table.is_changed())
         self.rom_tree.set_dirty(doc.rom, doc.table.name, doc.table.is_changed())
         self._update_window_title()
 
     def _on_active_document_changed(self, doc) -> None:
+        if doc is not None and hasattr(doc, "rom"):
+            self._selected_rom = doc.rom
         grid = getattr(doc, "grid", None) if doc is not None else None
         if grid is not None:
             self.table_toolbar.bind(grid)
@@ -863,8 +1127,15 @@ class MainWindow(QMainWindow):
         def_path, needs_persist = resolved
         from ecueditor.core.errors import ECUEditorError
         from ecueditor.core.loggerdef.parser import parse_logger_definition
+        # Import shipped registrations explicitly, then let a logger definition
+        # select any protocol made available by built-ins or drop-in plugins.
+        from ecueditor.core.comms import protocol as _protocol_builtins  # noqa: F401
+        from ecueditor.core.plugins.registry import PROTOCOLS
         try:
-            definition = parse_logger_definition(def_path)
+            definition = parse_logger_definition(
+                def_path,
+                supported_protocol_ids=PROTOCOLS.keys(),
+            )
         except ECUEditorError as exc:
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "Logger", f"Could not parse logger definition:\n{exc}")
@@ -883,11 +1154,23 @@ class MainWindow(QMainWindow):
             settings=self._services.settings,
             parent=self)
         self._logger_window = win
+        window_id = id(win)
+        win.destroyed.connect(
+            lambda _obj=None, token=window_id: self._clear_logger_window(token)
+        )
         win.set_active_rom(self._active_rom())
         for doc in self.documents.documents():                   # tables opened BEFORE launch
             grid = getattr(doc, "grid", None)
             if grid is not None:
                 win.register_editor_table(grid)
+
+    def _clear_logger_window(self, candidate) -> None:
+        """Forget a logger only when the destroyed signal belongs to the current instance."""
+        current = self._logger_window
+        if current is None:
+            return
+        if candidate is current or candidate == id(current):
+            self._logger_window = None
 
     def _resolve_logger_def_path(self):
         """(path, needs_persist) -- needs_persist is True only for a fresh QFileDialog pick, so
@@ -928,14 +1211,42 @@ class MainWindow(QMainWindow):
             # pre-hardware bundle (docs/backlog.md "Phase 3 exit"). LoggerWindow.connect_clicked
             # catches ECUEditorError raised from here.
             from ecueditor.core.comms.connection import ConnectionManager
+            from ecueditor.core.comms.protocol.base import create_registered_protocol
             from ecueditor.core.comms.transport.base import open_best_transport
+            from ecueditor.core.errors import CommsError
             from ecueditor.core.logger.engine import LoggerEngine
-            from ecueditor.core.plugins.registry import PROTOCOLS
             from ecueditor.ui.logger.controller import LoggerController
-            protocol = PROTOCOLS.get(definition.protocol_id)()   # key "DS2" (Phase 3 registration)
-            conn = ConnectionManager(open_best_transport(), protocol)
-            conn.open(port)
-            conn.init()
+            protocol = create_registered_protocol(definition.protocol_id)
+            conn = ConnectionManager(
+                open_best_transport(port),
+                protocol,
+                module_address=definition.module_address,
+            )
+
+            def close_after_failure() -> None:
+                try:
+                    conn.close()
+                except (Exception, SystemExit) as close_exc:
+                    _log.warning(
+                        "logger connection cleanup failed: %s",
+                        close_exc,
+                        exc_info=close_exc,
+                    )
+
+            try:
+                conn.open(port)
+                conn.init()
+            except KeyboardInterrupt:
+                close_after_failure()
+                raise
+            except (Exception, SystemExit) as exc:
+                close_after_failure()
+                if isinstance(exc, CommsError):
+                    raise
+                detail = str(exc) or type(exc).__name__
+                raise CommsError(
+                    f"logger connection setup failed on {port!r}: {detail}"
+                ) from exc
             return LoggerController(LoggerEngine(conn, definition))
         return factory
 
@@ -970,16 +1281,20 @@ class MainWindow(QMainWindow):
         self._services.settings = settings
         from PySide6.QtWidgets import QApplication
         from ecueditor.ui.theme import apply_theme
-        apply_theme(QApplication.instance(), settings.theme)      # live re-theme (H6)
+        application = QApplication.instance()
+        assert isinstance(application, QApplication)
+        apply_theme(application, settings.theme)      # live re-theme (H6)
         for doc in self.documents.documents():
+            if hasattr(doc, "apply_display_settings"):
+                doc.apply_display_settings(settings)
             grid = getattr(doc, "grid", None)
             if grid is not None:
                 _apply_settings_to_grid(grid, settings)
-            elif hasattr(doc, "set_colormap"):
+            elif hasattr(doc, "set_colormap") and not hasattr(doc, "apply_display_settings"):
                 doc.set_colormap(getattr(settings, "colormap", "rainbow"))
-        self.documents.set_editor_window_size(
-            getattr(settings, "editor_window_size", "medium")
-        )
+            if hasattr(doc, "refresh_theme"):
+                doc.refresh_theme()
+        self.documents.fit_studio_windows_to_content()
 
     def _on_colormap_changed(self, name: str) -> None:
         """Legend colormap menu -> persist to settings + re-project every open grid (keeps the
@@ -1012,7 +1327,12 @@ class MainWindow(QMainWindow):
             self._services.settings.theme = value
             from ecueditor.core.settings import save_settings
             save_settings(self._services.settings)
-        apply_theme(QApplication.instance(), value)      # same re-theme path as the Settings dialog (H6)
+        application = QApplication.instance()
+        assert isinstance(application, QApplication)
+        apply_theme(application, value)      # same re-theme path as the Settings dialog (H6)
+        for doc in self.documents.documents():
+            if hasattr(doc, "refresh_theme"):
+                doc.refresh_theme()
 
     def _open_rom_properties(self) -> None:
         rom = self._active_rom()
@@ -1026,7 +1346,7 @@ class MainWindow(QMainWindow):
         from PySide6.QtWidgets import QMessageBox
         from ecueditor import __version__
         QMessageBox.about(self, f"About {PRODUCT_NAME}",
-            f"<b>{PRODUCT_NAME} {__version__} — Beta 1</b><br>"
+            f"<b>{PRODUCT_NAME} {display_version(__version__)}</b><br>"
             f"{PRODUCT_TAGLINE}<br><br>"
             "A modular, RomRaider-compatible ROM calibration editor, live data logger, "
             "and virtual dyno.<br><br>"
@@ -1043,7 +1363,7 @@ class MainWindow(QMainWindow):
             "  Ctrl+S            Save\n"
             "  Ctrl+Shift+S      Save As…\n"
             "  Ctrl+W            Close ROM\n"
-            "  F5                Refresh\n"
+            "  F5                Reload ROM from Disk\n"
             "  Ctrl+L            Launch Logger…\n"
             "  Ctrl+K            Go to Table…\n"
             "\n"
@@ -1053,9 +1373,8 @@ class MainWindow(QMainWindow):
             "  Ctrl+C            Copy Selection\n"
             "  Ctrl+Shift+C      Copy Table\n"
             "  Ctrl+V            Paste\n"
-            "  Shift+I           Interpolate\n"
-            "  Shift+H           Horizontal Interpolate (3D)\n"
-            "  Shift+V           Vertical Interpolate (3D)\n"
+            "  Shift+I           Interpolate Selection\n"
+            "  Ctrl+Shift+M      Open Map Studio\n"
             "  + / _             Increment / Decrement (coarse)\n"
             "  *                 Multiply")
 

@@ -1,23 +1,31 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 from PySide6.QtWidgets import QApplication
 from ecueditor import __version__
 from ecueditor.core.defs.library import DefinitionLibrary
+from ecueditor.core.settings import EditorSettings
 from ecueditor.metadata import PRODUCT_NAME, PUBLISHER
+
+if TYPE_CHECKING:
+    from ecueditor.ui.design.theme_manager import ThemeManager
 
 @dataclass
 class AppServices:
     """Everything the UI needs from the core, assembled once at startup."""
     library: DefinitionLibrary
     plugins_loaded: list[str] = field(default_factory=list)
-    settings: object | None = None          # EditorSettings
+    settings: EditorSettings | None = None
     definition_paths: list[Path] = field(default_factory=list)   # def files behind `library` (force-load picker)
-    theme_manager: object | None = None     # ThemeManager, populated in build_app
+    theme_manager: ThemeManager | None = None
+    plugin_failures: list[str] = field(default_factory=list)
 
 def build_app(services: AppServices, argv: list[str] | None = None) -> QApplication:
-    app = QApplication.instance()
-    if app is None:
+    instance = QApplication.instance()
+    if isinstance(instance, QApplication):
+        app = instance
+    else:
         app = QApplication(argv if argv is not None else [])
     app.setApplicationName(PRODUCT_NAME)
     app.setApplicationVersion(__version__)

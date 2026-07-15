@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 from typing import Sequence
 from ecueditor.core.defs.parser import DefinitionDocument
@@ -10,6 +11,8 @@ from ecueditor.core.memory import model_for_match
 from ecueditor.core.memory.base import MemoryModel
 from ecueditor.core.plugins.registry import IMPORTERS
 from ecueditor.core.errors import DefinitionError
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -28,22 +31,37 @@ class DefinitionLibrary:
         for p in self._paths:
             try:
                 doc = self._importer_for(p).import_document(p)
-            except Exception as exc:  # noqa: BLE001 — any import failure is a per-path fact
+                if not isinstance(doc, DefinitionDocument):
+                    raise TypeError(
+                        "definition importer must return a DefinitionDocument, "
+                        f"not {type(doc).__name__}"
+                    )
+                rom_count = len(doc.rom_ids)
+            except (Exception, SystemExit) as exc:  # any plugin import failure is a per-path fact
                 if strict:
                     raise DefinitionError(str(exc)) from exc
                 self._statuses.append(DocumentStatus(path=p, ok=False, error=str(exc)))
                 continue
             self._docs.append(doc)
-            self._statuses.append(DocumentStatus(path=p, ok=True, rom_count=len(doc.rom_ids)))
+            self._statuses.append(DocumentStatus(path=p, ok=True, rom_count=rom_count))
 
     def document_statuses(self) -> list[DocumentStatus]:
         return list(self._statuses)
 
     def _importer_for(self, path: Path) -> DefinitionImporter:
         for key in IMPORTERS.keys():
-            imp = IMPORTERS.get(key)()
-            if imp.can_import(path):
-                return imp
+            try:
+                imp = IMPORTERS.get(key)()
+                if imp.can_import(path):
+                    return imp
+            except (Exception, SystemExit) as exc:
+                _log.warning(
+                    "definition importer %r failed to probe %s: %s",
+                    key,
+                    path,
+                    exc,
+                    exc_info=exc,
+                )
         raise DefinitionError(f"no importer can load {path}")
 
     def match(self, image: bytes) -> tuple[DefinitionDocument, RomId, MemoryModel] | None:

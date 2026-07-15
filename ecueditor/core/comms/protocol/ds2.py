@@ -41,6 +41,15 @@ class DS2Protocol:
     MAX_TELEGRAM_ENTRIES = 49  # 6 + 5*n must fit the one-byte DS2 total length
     STATUS_OK = 0xA0
     ECU_ID_LEN = 7                        # ident payload[:7] (part number / custom id; see caveat)
+    RESPONSE_HEADER_SIZE = 2
+
+    def response_length(self, header: bytes) -> int:
+        if len(header) != self.RESPONSE_HEADER_SIZE:
+            raise CommsError(f"DS2 response header has {len(header)} bytes")
+        return header[1]
+
+    def validate_response(self, response: bytes) -> bool:
+        return ds2_validate(response)
 
     def serial_params(self) -> SerialParams:
         # logger def 9600 8E; TX 8E2 (2 stop bits) matches the hardware-proven Flasher (safe

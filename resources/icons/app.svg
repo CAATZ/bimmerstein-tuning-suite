@@ -1,10 +1,36 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect x="24" y="24" width="464" height="464" rx="112" fill="#101215"/>
-  <rect x="35" y="35" width="442" height="442" rx="101" fill="none" stroke="#e5484d" stroke-width="22"/>
-  <path d="M116 343a160 160 0 0 1 280 0" fill="none" stroke="#e8eaed" stroke-width="30" stroke-linecap="round"/>
-  <path d="M150 308l-24-14M188 265l-17-22M256 242v-30M324 265l17-22M362 308l24-14"
-        fill="none" stroke="#9aa0a6" stroke-width="18" stroke-linecap="round"/>
-  <path d="M256 337l91-105" fill="none" stroke="#e5484d" stroke-width="30" stroke-linecap="round"/>
-  <circle cx="256" cy="337" r="28" fill="#e8eaed" stroke="#101215" stroke-width="12"/>
-  <path d="M137 394h238" fill="none" stroke="#e5484d" stroke-width="20" stroke-linecap="round"/>
+  <title>BimmerStein Tuning Suite</title>
+  <desc>An angular red B monogram split by a rising calibration ridge.</desc>
+  <defs>
+    <linearGradient id="background" x1="78" y1="48" x2="432" y2="470" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1b1f26"/>
+      <stop offset="0.55" stop-color="#111419"/>
+      <stop offset="1" stop-color="#090b0e"/>
+    </linearGradient>
+    <linearGradient id="red-face" x1="135" y1="112" x2="385" y2="405" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff5964"/>
+      <stop offset="0.36" stop-color="#e5484d"/>
+      <stop offset="0.72" stop-color="#ce2034"/>
+      <stop offset="1" stop-color="#8f1725"/>
+    </linearGradient>
+  </defs>
+
+  <!-- The dark squircle is deliberately borderless so the monogram owns the silhouette. -->
+  <rect x="18" y="18" width="476" height="476" rx="120" fill="#07090c"/>
+  <rect x="29" y="29" width="454" height="454" rx="108" fill="url(#background)"/>
+  <path d="M68 367 267 29h61L163 448H68Z" fill="#20242b" opacity="0.5"/>
+
+  <!-- Redline B: two faceted map planes on a single strong vertical spine. -->
+  <path d="M126 93h168l94 55v77l-48 34 54 38v84l-91 51H126Zm77 67v72h75l45-26v-20l-45-26Zm0 137v78h81l47-27v-23l-47-28Z"
+        fill="#040609" fill-rule="evenodd" opacity="0.8" transform="translate(10 11)"/>
+  <path d="M126 93h168l94 55v77l-48 34 54 38v84l-91 51H126Zm77 67v72h75l45-26v-20l-45-26Zm0 137v78h81l47-27v-23l-47-28Z"
+        fill="url(#red-face)" fill-rule="evenodd"/>
+
+  <!-- Broad facets hint at a 3D calibration surface without adding fine-detail noise. -->
+  <path d="m294 93 94 55v77l-48 34-29-24 38-27v-38l-68-40Z" fill="#a9182b" opacity="0.72"/>
+  <path d="m340 259 54 38v84l-91 51-28-57h9l47-27v-23l-47-28Z" fill="#7c111f" opacity="0.62"/>
+  <path d="M126 93h168l27 16H151v323h-25Z" fill="#ff6a72" opacity="0.48"/>
+
+  <!-- The negative-space ridge reads as both a tuning curve and a forward-moving bolt. -->
+  <path d="m132 327 137-88h116l-137 88Z" fill="#0a0c10"/>
 </svg>

@@ -1,10 +1,13 @@
 from __future__ import annotations
-from PySide6.QtWidgets import QToolBar, QComboBox, QLineEdit, QLabel
+from typing import cast
+
+from PySide6.QtWidgets import QToolBar, QComboBox, QLineEdit, QLabel, QToolButton
 from PySide6.QtGui import QAction, QDoubleValidator, QKeySequence
 from PySide6.QtCore import Qt
 from ecueditor.ui.design.icons import icon
 from ecueditor.ui.editor import edit_ops
 from ecueditor.ui.editor.table_grid import TableGridWidget
+from ecueditor.ui.editor.table_model import TableGridModel
 
 class TableToolBar(QToolBar):
     def __init__(self, parent=None) -> None:
@@ -52,7 +55,7 @@ class TableToolBar(QToolBar):
 
         for act in (self.action_color, self.action_enable3d):
             btn = self.widgetForAction(act)
-            if btn is not None:
+            if isinstance(btn, QToolButton):
                 btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
 
         self.action_inc_fine.triggered.connect(lambda: self._op(edit_ops.increment_fine))
@@ -77,15 +80,16 @@ class TableToolBar(QToolBar):
         self._grid = grid
         self.scale_combo.blockSignals(True); self.scale_combo.clear()
         if grid is not None:
+            model = cast(TableGridModel, grid.model())
             for a in (self.action_inc_fine, self.action_dec_fine, self.action_inc_coarse,
                       self.action_dec_coarse, self.action_add, self.action_subtract,
                       self.action_multiply, self.action_divide, self.action_increase_percent,
                       self.action_decrease_percent):
                 grid.addAction(a)          # +, _, and * fire when the grid has keyboard focus
-            for sc in grid.model().scales:
+            for sc in model.scales:
                 self.scale_combo.addItem(sc.units or "raw value")
-            self.scale_combo.setCurrentIndex(grid.model()._scale_ix)
-            self.action_color.setChecked(grid.model()._color_cells)
+            self.scale_combo.setCurrentIndex(model._scale_ix)
+            self.action_color.setChecked(model._color_cells)
             self._refresh_increment_tooltips()
         self.scale_combo.blockSignals(False)
         self.setEnabled(grid is not None)
@@ -93,7 +97,7 @@ class TableToolBar(QToolBar):
     def _refresh_increment_tooltips(self) -> None:
         if self._grid is None:
             return
-        scale = self._grid.model().current_scale
+        scale = cast(TableGridModel, self._grid.model()).current_scale
         units = f" {scale.units}" if scale.units else ""
         fine = f"{scale.fine_increment:g}{units}"
         coarse = f"{scale.coarse_increment:g}{units}"
@@ -115,11 +119,15 @@ class TableToolBar(QToolBar):
 
     def _op(self, fn) -> None:
         if self._grid:
-            fn(self._grid.model(), self._sel())
+            fn(cast(TableGridModel, self._grid.model()), self._sel())
 
     def _on_set(self) -> None:
         if self._grid and self.set_value_edit.text():
-            edit_ops.set_value(self._grid.model(), self._sel(), float(self.set_value_edit.text()))
+            edit_ops.set_value(
+                cast(TableGridModel, self._grid.model()),
+                self._sel(),
+                float(self.set_value_edit.text()),
+            )
 
     def _on_math(self, operation, *, reject_zero: bool = False) -> None:
         if not self._grid or not self.math_operand_edit.text():
@@ -130,7 +138,7 @@ class TableToolBar(QToolBar):
             self.math_operand_edit.setToolTip("Division by zero is not allowed")
             return
         self._set_math_invalid(False)
-        operation(self._grid.model(), self._sel(), operand)
+        operation(cast(TableGridModel, self._grid.model()), self._sel(), operand)
 
     def _set_math_invalid(self, invalid: bool) -> None:
         self.math_operand_edit.setProperty("invalid", invalid)
@@ -145,5 +153,5 @@ class TableToolBar(QToolBar):
 
     def _on_scale(self, ix: int) -> None:
         if self._grid and ix >= 0:
-            self._grid.model().set_scale(ix)
+            cast(TableGridModel, self._grid.model()).set_scale(ix)
             self._refresh_increment_tooltips()

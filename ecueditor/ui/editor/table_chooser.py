@@ -31,7 +31,9 @@ class TableChooserDialog(QDialog):
         self.show_all = QCheckBox("Show all shapes")
         self.show_all.toggled.connect(self._apply_shape_filter)
         lay.addWidget(self.show_all)
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
         bb.accepted.connect(self._accept); bb.rejected.connect(self.reject); lay.addWidget(bb)
         self._apply_shape_filter()
 

@@ -85,12 +85,12 @@ def load_profile(path: str | Path) -> LoggerProfile:
 def apply_profile(panel, profile: LoggerProfile) -> None:
     """Apply profile selections to the poll and presentation views."""
     for e in (*profile.parameters, *profile.switches, *profile.externals):
-        if not (e.livedata or e.graph or e.dash):
-            continue
         try:
             panel.check(e.id)
         except KeyError:
             continue
+        if e.units:
+            panel.set_units(e.id, e.units)
         for view, on in (("livedata", e.livedata), ("graph", e.graph), ("dash", e.dash)):
             panel.set_view_checked(e.id, view, on)
 

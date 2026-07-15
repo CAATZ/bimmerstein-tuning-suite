@@ -1,5 +1,5 @@
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 from ecueditor.core.scaling.expression import compile_expression
 
@@ -61,12 +61,32 @@ class LoggerChannel:
     groupsize: int | None
     ecus: tuple[tuple[tuple[str, ...], tuple[ChannelAddress, ...]], ...]
     conversion: Conversion | None
+    conversions: tuple[Conversion, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.conversions and self.conversion is not None:
+            object.__setattr__(self, "conversions", (self.conversion,))
 
     def resolve(self, ecu_id: str) -> tuple[ChannelAddress, ...] | None:
         for ids, addrs in self.ecus:
             if ecu_id in ids:
                 return addrs
         return None
+
+    def with_units(self, units: str | None) -> LoggerChannel:
+        """Return this channel with the matching conversion active.
+
+        Logger definitions may offer several engineering-unit conversions for one raw value.
+        Unknown/empty unit requests intentionally leave the current conversion unchanged.
+        """
+        if not units:
+            return self
+        for conversion in self.conversions:
+            if conversion.units == units:
+                if conversion is self.conversion:
+                    return self
+                return replace(self, conversion=conversion)
+        return self
 
     @property
     def is_switch(self) -> bool:

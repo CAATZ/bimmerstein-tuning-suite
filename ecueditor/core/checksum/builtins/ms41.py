@@ -6,9 +6,10 @@
 from __future__ import annotations
 from ecueditor.core.plugins.registry import register
 from ecueditor.core.checksum.base import ChecksumReport, RegionStatus
+from ecueditor.core.errors import ChecksumError
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Ported verbatim from C:\Users\crist\MS41 Projects\Flasher\checksum.py — DO NOT
+# Ported verbatim from the MS41 Flasher checksum reference — DO NOT
 # modify the algorithm. Original module docstring, preserved here for context:
 #
 # checksum.py — BMW MS41.0/.1/.2 ROM checksum verification and correction.
@@ -255,6 +256,11 @@ class MS41Checksum:
     def validate(self, data: bytes) -> tuple[bool, list[str]]:
         return verify_checksum(bytearray(data))
     def update(self, data: bytearray) -> list[str]:
+        if len(data) not in (FULL_ROM_SIZE, TUNE_SIZE):
+            raise ChecksumError(
+                "MS41 checksum correction requires a 24 KB partial or 256 KB full read "
+                f"(got {len(data):,} bytes)"
+            )
         corrected, details = correct_checksums(data, correct_program=self._correct_program)
         data[:] = corrected          # write in place
         return details

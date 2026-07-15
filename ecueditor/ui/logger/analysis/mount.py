@@ -13,7 +13,10 @@ from ecueditor.ui.logger.analysis.maf_tab import MafTab
 _log = logging.getLogger(__name__)
 
 # Rich (hand-built) UI per engine id; every other ANALYSES entry gets GenericAnalysisTab.
-RICH_TABS: dict[str, type[QtWidgets.QWidget]] = {"maf": MafTab, "injector": InjectorTab}
+# The callable return union preserves the shared rich-tab constructor and ``set_definition``
+# contract without erasing them to QWidget's constructor signature.
+RichTabFactory = Callable[..., MafTab | InjectorTab]
+RICH_TABS: dict[str, RichTabFactory] = {"maf": MafTab, "injector": InjectorTab}
 
 
 class GenericAnalysisTab(QtWidgets.QWidget):
@@ -76,26 +79,44 @@ class GenericAnalysisTab(QtWidgets.QWidget):
             notes = [f"{self.title}: already applied — skipped"]
         else:
             try:
-                notes = self.engine.apply_to_rom(self._rom)
+                candidate_notes = self.engine.apply_to_rom(self._rom)
+                if not isinstance(candidate_notes, list) or not all(
+                    isinstance(note, str) for note in candidate_notes
+                ):
+                    raise TypeError("apply_to_rom must return list[str]")
+                notes = candidate_notes
                 self._applied = True
             except (ValueError, ECUEditorError) as exc:
                 notes = [str(exc)]
+            except (Exception, SystemExit) as exc:
+                detail = str(exc) or type(exc).__name__
+                _log.warning(
+                    "analysis engine %r failed to apply: %s",
+                    self.title,
+                    detail,
+                    exc_info=exc,
+                )
+                notes = [f"{self.title}: apply failed: {detail}"]
         self.status_label.setText("\n".join(notes))
         return notes
 
 
-def build_analysis_tabs(channel_map: ChannelMap, definition, parent=None) -> list[QtWidgets.QWidget]:
+AnalysisTabWidget = MafTab | InjectorTab | GenericAnalysisTab
+
+
+def build_analysis_tabs(channel_map: ChannelMap, definition, parent=None) -> list[AnalysisTabWidget]:
     """One widget per ANALYSES registry entry, in registration order (builtins first, then
     load_plugins() discoveries). Engine build convention: factory(channel_map=...) first, fall back
     to factory() on TypeError for engines that bind channels themselves (plugins/afr_target_tab.py).
     A non-rich engine whose construction raises is skipped with a logged warning (per-entry
     isolation: one malformed plugin cannot abort the tab list). Rich ids stay fail-fast — they are
     first-party builtins; a failure there is a real bug that must surface."""
-    tabs: list[QtWidgets.QWidget] = []
+    tabs: list[AnalysisTabWidget] = []
     for key in ANALYSES.keys():
         if key in RICH_TABS:
-            tab = RICH_TABS[key](channel_map=channel_map, parent=parent)
-            tab.set_definition(definition)
+            rich_tab = RICH_TABS[key](channel_map=channel_map, parent=parent)
+            rich_tab.set_definition(definition)
+            tab: AnalysisTabWidget = rich_tab
         else:
             factory = ANALYSES.get(key)
             try:
@@ -104,7 +125,7 @@ def build_analysis_tabs(channel_map: ChannelMap, definition, parent=None) -> lis
                 except TypeError:
                     engine = factory()
                 tab = GenericAnalysisTab(engine, parent=parent)
-            except Exception as exc:  # per-entry isolation (extension point #5 degrades gracefully)
+            except (Exception, SystemExit) as exc:  # optional extension degrades gracefully
                 _log.warning("analysis engine %r failed to build: %s", key, exc, exc_info=exc)
                 continue
         tabs.append(tab)

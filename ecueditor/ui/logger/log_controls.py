@@ -1,6 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit,
@@ -17,6 +17,7 @@ class CsvLogSession:
         self._out_dir = Path(out_dir)
         self._recorder: CsvRecorder | None = None
         self._path: Path | None = None
+        self._subscribers: list[Callable[[bool, str], None]] = []
 
     @property
     def is_active(self) -> bool:
@@ -32,10 +33,26 @@ class CsvLogSession:
 
     def start(self, channels: Sequence[LoggerChannel], *, absolute_time: bool,
               name_infix: str = "") -> Path:
-        self._recorder = CsvRecorder(self._out_dir, absolute_time=absolute_time,
-                                     name_infix=name_infix)
-        self._path = self._recorder.start(list(channels))
-        return self._path
+        if self._recorder is not None:
+            self._recorder.stop()
+        recorder = CsvRecorder(self._out_dir, absolute_time=absolute_time,
+                               name_infix=name_infix)
+        path = recorder.start(list(channels))
+        self._recorder = recorder
+        self._path = path
+        self._notify()
+        return path
+
+    def subscribe(self, callback: Callable[[bool, str], None]) -> Callable[[], None]:
+        self._subscribers.append(callback)
+        def unsubscribe() -> None:
+            if callback in self._subscribers:
+                self._subscribers.remove(callback)
+        return unsubscribe
+
+    def _notify(self) -> None:
+        for callback in list(self._subscribers):
+            callback(self.is_active, self.current_filename())
 
     def current_filename(self) -> str:
         return self._path.name if self._path is not None else ""
@@ -45,10 +62,13 @@ class CsvLogSession:
             self._recorder.write(sample)
 
     def stop(self) -> None:
+        was_active = self._recorder is not None
         if self._recorder is not None:
             self._recorder.stop()
             self._recorder = None
         self._path = None
+        if was_active:
+            self._notify()
 
 
 class LogControlsBar(QWidget):
@@ -89,16 +109,18 @@ class LogControlsBar(QWidget):
         self.switch_combo.addItems([c.id for c in channels])
 
     def toggle_logging(self) -> None:
-        self._logging = not self._logging
-        if self._logging:
-            self.log_button.setText("Stop File Logging")
-            self.log_button.setChecked(True)
+        start = not self._logging
+        self.set_logging(start)
+        if start:
             self.startRequested.emit(self.name_infix_edit.text(),
                                      self.absolute_time_check.isChecked())
         else:
-            self.log_button.setText("Start File Logging")
-            self.log_button.setChecked(False)
             self.stopRequested.emit()
+
+    def set_logging(self, active: bool) -> None:
+        self._logging = bool(active)
+        self.log_button.setText("Stop File Logging" if active else "Start File Logging")
+        self.log_button.setChecked(active)
 
     def _emit_switch_trigger(self) -> None:
         self.switchTriggerChanged.emit(self.switch_trigger_check.isChecked(),

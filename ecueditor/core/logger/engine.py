@@ -84,12 +84,23 @@ class LoggerEngine:
         self._subs: list[Callable[[Sample], None]] = []
         self._state_lock = threading.Lock()
         self._poll_mode: PollMode = "auto"
-        self._batch_ready = False
+        self._batch_signature: tuple[tuple[int, int], ...] | None = None
         self._batch_failure = ""
+        self._selection_generation = 0
         self._selection_report = SelectionReport((), (), {})
         self.clock = clock or _default_clock
 
     def select(self, channel_ids: Sequence[str]) -> None:
+        self._select(channel_ids, {})
+
+    def select_with_units(
+        self, channel_ids: Sequence[str], units: Mapping[str, str | None],
+    ) -> None:
+        self._select(channel_ids, units)
+
+    def _select(
+        self, channel_ids: Sequence[str], units: Mapping[str, str | None],
+    ) -> None:
         ecu_id = self._conn.ecu_id
         if ecu_id is None:
             raise CommsError("connection not initialised; call ConnectionManager.init() first")
@@ -104,6 +115,7 @@ class LoggerEngine:
             except KeyError:
                 unavailable[cid] = "unknown channel"
                 continue                              # unknown id -> skip
+            ch = ch.with_units(units.get(cid))
             addrs = ch.resolve(ecu_id)
             if not addrs or addrs[0].address is None:
                 unavailable[cid] = f"not available for ECU {ecu_id}"
@@ -129,7 +141,8 @@ class LoggerEngine:
             self._selected = tuple(selected)
             self._selection_report = report
             self._batch_failure = ""       # an explicit re-selection retries fast mode
-            self._batch_ready = False       # selected addresses/order are the ECU response contract
+            self._batch_signature = None    # selected addresses/order are the ECU response contract
+            self._selection_generation += 1
 
     def selected_channels(self) -> list[LoggerChannel]:
         with self._state_lock:
@@ -141,55 +154,96 @@ class LoggerEngine:
         with self._state_lock:
             self._poll_mode = mode  # type: ignore[assignment]
             self._batch_failure = ""
-            self._batch_ready = False
+            self._batch_signature = None
+            self._selection_generation += 1
 
     def poll_once(self) -> Sample:
-        with self._state_lock:
-            selected = self._selected
-            requested_mode = self._poll_mode
-            batch_ready = self._batch_ready
-            batch_failure = self._batch_failure
+        while True:
+            with self._state_lock:
+                selected = self._selected
+                requested_mode = self._poll_mode
+                batch_signature = self._batch_signature
+                batch_failure = self._batch_failure
+                generation = self._selection_generation
 
-        values: dict[str, float] = {}
-        telegram_selected = tuple(pair for pair in selected if is_address_list_channel(pair[0]))
-        use_batch = bool(telegram_selected) and requested_mode != "memory" \
-            and self._conn.supports_telegram and not batch_failure
-        memory_selected = selected
-        if use_batch:
-            try:
-                slots = telegram_slots(
-                    tuple(channel for channel, _read in telegram_selected), self.ecu_id or "",
-                )
-                if not batch_ready:
-                    self._conn.telegram_setup(telegram_entries(slots))
+            values: dict[str, float] = {}
+            telegram_selected = tuple(
+                pair for pair in selected if is_address_list_channel(pair[0])
+            )
+            use_batch = bool(telegram_selected) and requested_mode != "memory" \
+                and self._conn.supports_telegram and not batch_failure
+            memory_selected = selected
+            if use_batch:
+                try:
+                    slots = telegram_slots(
+                        tuple(channel for channel, _read in telegram_selected), self.ecu_id or "",
+                    )
+                    max_entries = max(1, int(getattr(
+                        self._conn, "telegram_max_entries", len(slots) or 1,
+                    )))
+                    for offset in range(0, len(slots), max_entries):
+                        chunk_slots = slots[offset:offset + max_entries]
+                        entries = telegram_entries(chunk_slots)
+                        if batch_signature != entries:
+                            self._conn.telegram_setup(entries)
+                            if not self._is_current(generation):
+                                break
+                            with self._state_lock:
+                                self._batch_signature = entries
+                            batch_signature = entries
+                        expected_length = sum(slot.width for slot in chunk_slots)
+                        payload = self._conn.telegram_poll(expected_length)
+                        if not self._is_current(generation):
+                            break
+                        values.update(decode_telegram_payload(payload, chunk_slots))
+                    if not self._is_current(generation):
+                        continue
+                    memory_selected = tuple(
+                        pair for pair in selected if not is_address_list_channel(pair[0])
+                    )
+                except (CommsError, ValueError) as exc:
+                    if not self._is_current(generation):
+                        continue
+                    values.clear()  # discard any earlier chunk; fallback must be one coherent plan
+                    # Batch is an accelerator, never a reason to lose memory-readable channels.
+                    # ADC mux selectors cannot be read with 0x06, so surface those explicitly in
+                    # SelectionReport rather than silently producing blank values.
+                    adc_ids = {
+                        channel.id for channel, read in selected
+                        if address_class(read.address) == "ADC-CHANNEL"
+                    }
                     with self._state_lock:
-                        self._batch_ready = True
-                expected_length = sum(slot.width for slot in slots)
-                payload = self._conn.telegram_poll(expected_length)
-                values.update(decode_telegram_payload(payload, slots))
-                memory_selected = tuple(
-                    pair for pair in selected if not is_address_list_channel(pair[0])
-                )
-            except (CommsError, ValueError) as exc:
-                # Batch is an accelerator, never a reason to lose logging.  Keep the user's full
-                # selection and fall back to the known-compatible 0x06 reads for this session.
-                with self._state_lock:
-                    self._batch_failure = str(exc)
-                    self._batch_ready = False
-                # ADC values are mux indices, not RAM addresses.  In particular P17 normally
-                # resolves to ADC index 0x07; only the batch's verified V_IGK mirror may supply it.
-                memory_selected = tuple(
-                    pair for pair in selected
-                    if address_class(pair[1].address) != "ADC-CHANNEL"
-                )
+                        self._batch_failure = str(exc)
+                        self._batch_signature = None
+                        prior = self._selection_report
+                        unavailable = dict(prior.unavailable)
+                        unavailable.update({
+                            channel_id: "batch polling failed; ADC unavailable in compatible mode"
+                            for channel_id in adc_ids
+                        })
+                        self._selection_report = SelectionReport(
+                            prior.requested,
+                            tuple(cid for cid in prior.selected if cid not in adc_ids),
+                            unavailable,
+                        )
+                    memory_selected = tuple(
+                        pair for pair in selected
+                        if address_class(pair[1].address) != "ADC-CHANNEL"
+                    )
 
-        blocks = _memory_blocks(memory_selected)
-        payloads = self._conn.read_memory([block.read for block in blocks]) if blocks else []
-        for block, payload in zip(blocks, payloads):
-            for item in block.items:
-                chunk = payload[item.offset:item.offset + item.length]
-                values[item.channel.id] = item.channel.decode(chunk)
-        return Sample(timestamp_ms=self.clock(), values=values)
+            blocks = _memory_blocks(memory_selected)
+            payloads = self._conn.read_memory([block.read for block in blocks]) if blocks else []
+            if not self._is_current(generation):
+                continue
+            for block, payload in zip(blocks, payloads):
+                for item in block.items:
+                    chunk = payload[item.offset:item.offset + item.length]
+                    values[item.channel.id] = item.channel.decode(chunk)
+            return Sample(timestamp_ms=self.clock(), values=values)
+
+    def _is_current(self, generation: int) -> bool:
+        with self._state_lock:
+            return generation == self._selection_generation
 
     def subscribe(self, callback: Callable[[Sample], None]) -> Callable[[], None]:
         self._subs.append(callback)
@@ -200,9 +254,17 @@ class LoggerEngine:
 
     def run(self, stop: threading.Event) -> None:
         while not stop.is_set():
+            with self._state_lock:
+                has_selection = bool(self._selected)
+            if not has_selection:
+                stop.wait(0.05)
+                continue
             sample = self.poll_once()
             for cb in list(self._subs):
                 cb(sample)
+
+    def close(self) -> None:
+        self._conn.close()
 
     @property
     def ecu_id(self) -> str | None:
@@ -226,5 +288,7 @@ class LoggerEngine:
                 and self._conn.supports_telegram
             failure = self._batch_failure
         if failure:
-            return "Compatible (batch fallback)"
+            unavailable = len(self.selection_report.unavailable)
+            suffix = f"; {unavailable} unavailable" if unavailable else ""
+            return f"Compatible (batch fallback{suffix})"
         return "Fast batch" if can_batch else "Compatible"

@@ -1,8 +1,15 @@
 from __future__ import annotations
 from typing import Callable
-from PySide6.QtWidgets import QWidget, QHBoxLayout, QToolButton, QLabel, QMenu
+from PySide6.QtWidgets import (
+    QWidget,
+    QHBoxLayout,
+    QToolButton,
+    QLabel,
+    QMenu,
+    QMessageBox,
+)
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QSize, Qt, Signal, QTimer
 from ecueditor.ui.editor import edit_ops, clipboard
 from ecueditor.ui.editor.table_grid import TableGridWidget
 from ecueditor.ui.design.icons import icon
@@ -13,6 +20,8 @@ class TableMenuBar(QWidget):
     not a QMenuBar dropdown. Builds the same QActions/wiring/shortcut-scoping as before --
     only the presentation (chips instead of Edit/Compare menus) changed."""
 
+    mapStudioRequested = Signal()
+
     def __init__(self, grid: TableGridWidget, parent=None,
                  roms_provider: Callable[[], list] | None = None) -> None:
         super().__init__(parent)
@@ -20,48 +29,54 @@ class TableMenuBar(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._grid = grid
         self._roms_provider = roms_provider
-        is3d = grid.model().table.shape()[1] > 1
-
         # --- actions: same names/shortcuts/wiring as the old QMenuBar build --------------
         self.action_undo_sel = QAction("Undo", self, shortcut=QKeySequence("Ctrl+Z"))
+        self.action_redo = QAction("Redo", self, shortcut=QKeySequence("Ctrl+Y"))
         self.action_undo_all = QAction("Undo All", self, shortcut=QKeySequence("Ctrl+Shift+Z"))
         self.action_revert = QAction("Set Revert Point", self)
         self.action_copy_sel = QAction("Copy Sel", self, shortcut=QKeySequence("Ctrl+C"))
         self.action_copy_table = QAction("Copy Table", self, shortcut=QKeySequence("Ctrl+Shift+C"))
         self.action_paste = QAction("Paste", self, shortcut=QKeySequence("Ctrl+V"))
-        self.action_interpolate = QAction("Interp", self, shortcut=QKeySequence("Shift+I"))
+        self.action_interpolate = QAction(
+            "Interpolate", self, shortcut=QKeySequence("Shift+I")
+        )
+        self.action_map_studio = QAction(
+            "Map Studio", self, shortcut=QKeySequence("Ctrl+Shift+M")
+        )
         self.action_undo_sel.setToolTip("Undo Last Change (Ctrl+Z)")
+        self.action_redo.setToolTip("Redo Last Change (Ctrl+Y)")
         self.action_undo_all.setToolTip("Undo All Changes (Ctrl+Shift+Z)")
         self.action_revert.setToolTip("Set Revert Point")
         self.action_copy_sel.setToolTip("Copy Selection (Ctrl+C)")
         self.action_copy_table.setToolTip("Copy Table (Ctrl+Shift+C)")
         self.action_paste.setToolTip("Paste (Ctrl+V)")
-        self.action_interpolate.setToolTip("Interpolate (Shift+I)")
+        self.action_interpolate.setToolTip("Interpolate Selection (Shift+I)")
+        self.action_map_studio.setToolTip("Open Map Studio (Ctrl+Shift+M)")
         self.action_undo_sel.setIcon(icon("undo"))
+        self.action_redo.setIcon(icon("refresh"))
         self.action_undo_all.setIcon(icon("undo-all"))
         self.action_revert.setIcon(icon("revert-flag"))
         self.action_copy_sel.setIcon(icon("copy"))
-        self.action_copy_table.setIcon(icon("copy"))
+        self.action_copy_table.setIcon(icon("table-3d"))
         self.action_paste.setIcon(icon("paste"))
         self.action_interpolate.setIcon(icon("interpolate"))
-
-        if is3d:
-            self.action_h_interp = QAction("↔", self, shortcut=QKeySequence("Shift+H"))
-            self.action_v_interp = QAction("↕", self, shortcut=QKeySequence("Shift+V"))
-            self.action_h_interp.setToolTip("Horizontal Interpolate (Shift+H)")
-            self.action_v_interp.setToolTip("Vertical Interpolate (Shift+V)")
-            self.action_h_interp.setIcon(icon("interpolate"))
-            self.action_v_interp.setIcon(icon("interpolate"))
-            self.action_h_interp.triggered.connect(lambda: self._op(edit_ops.interpolate_horizontal))
-            self.action_v_interp.triggered.connect(lambda: self._op(edit_ops.interpolate_vertical))
+        self.action_map_studio.setIcon(icon("cube"))
+        table = grid.model().table
+        self.action_map_studio.setEnabled(
+            len(table.cells) > 1 and table.definition.type not in {"Switch", "Bitwise"}
+        )
 
         self.action_undo_sel.triggered.connect(self._undo_last)
+        self.action_redo.triggered.connect(self._redo_last)
         self.action_undo_all.triggered.connect(self._undo_all)
         self.action_revert.triggered.connect(self._set_revert_point)
         self.action_copy_sel.triggered.connect(lambda: clipboard.copy_selection(self._grid.model(), self._sel()))
         self.action_copy_table.triggered.connect(lambda: clipboard.copy_table(self._grid.model()))
         self.action_paste.triggered.connect(self._paste)
-        self.action_interpolate.triggered.connect(lambda: self._op(edit_ops.interpolate_2d))
+        self.action_interpolate.triggered.connect(self._interpolate_selection)
+        self.action_map_studio.triggered.connect(self.mapStudioRequested)
+        grid.model().historyChanged.connect(self._sync_history_actions)
+        self._sync_history_actions(grid.model().can_undo(), grid.model().can_redo())
 
         self.action_show_changes = QAction("Show Changes", self, checkable=True)
         self.action_compare_to = QAction("Compare To Table…", self)
@@ -108,6 +123,7 @@ class TableMenuBar(QWidget):
             lay.addWidget(s, 0, Qt.AlignmentFlag.AlignVCenter)
 
         chip(self.action_undo_sel)
+        chip(self.action_redo)
         chip(self.action_undo_all)
         self._revert_button = chip(self.action_revert)
         sep()
@@ -116,9 +132,7 @@ class TableMenuBar(QWidget):
         chip(self.action_paste)
         sep()
         chip(self.action_interpolate)
-        if is3d:
-            chip(self.action_h_interp, text_only=True)
-            chip(self.action_v_interp, text_only=True)
+        chip(self.action_map_studio)
         sep()
 
         self._compare_btn = QToolButton(self)
@@ -135,14 +149,55 @@ class TableMenuBar(QWidget):
         lay.addStretch(1)
         self._step_label = QLabel(self._step_caption(), self)
         lay.addWidget(self._step_label)
+        self._presentation_metrics_timer = QTimer(self)
+        self._presentation_metrics_timer.setSingleShot(True)
+        self._presentation_metrics_timer.setInterval(0)
+        self._presentation_metrics_timer.timeout.connect(self._remeasure_presentation)
+        self._remeasure_presentation()
+
+    def _remeasure_presentation(self) -> None:
+        lay = self.layout()
+        if lay is None:
+            return
+        initializing = not hasattr(self, "_stable_size_hint")
+        self._set_compact_presentation(False)
+        lay.invalidate(); lay.activate()
+        self._expanded_width_threshold = lay.sizeHint().width()
+        self._set_compact_presentation(True)
+        lay.invalidate(); lay.activate()
+        self._stable_size_hint = QSize(lay.sizeHint())
+        if initializing:
+            self.resize(self._stable_size_hint)
         self._apply_compact_layout(self.width())
+        self.updateGeometry()
+
+    def sizeHint(self) -> QSize:
+        return QSize(getattr(self, "_stable_size_hint", super().sizeHint()))
+
+    def minimumSizeHint(self) -> QSize:
+        return self.sizeHint()
+
+    def expanded_width_threshold(self) -> int:
+        return self._expanded_width_threshold
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._apply_compact_layout(event.size().width())
 
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() in {
+            QEvent.Type.FontChange,
+            QEvent.Type.ApplicationFontChange,
+            QEvent.Type.StyleChange,
+        } and hasattr(self, "_presentation_metrics_timer"):
+            self._presentation_metrics_timer.start()
+
     def _apply_compact_layout(self, width: int) -> None:
-        compact = width < 900
+        compact = width < self._expanded_width_threshold
+        self._set_compact_presentation(compact)
+
+    def _set_compact_presentation(self, compact: bool) -> None:
         style = (Qt.ToolButtonStyle.ToolButtonIconOnly if compact
                  else Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         for button in self._verb_buttons:
@@ -157,9 +212,9 @@ class TableMenuBar(QWidget):
         return self._step_label.text()
 
     def actions_list(self):
-        out = [self.action_undo_sel, self.action_undo_all, self.action_revert, self.action_copy_sel,
-               self.action_copy_table, self.action_paste, self.action_interpolate]
-        out += [getattr(self, n) for n in ("action_h_interp", "action_v_interp") if hasattr(self, n)]
+        out = [self.action_undo_sel, self.action_redo, self.action_undo_all,
+               self.action_revert, self.action_copy_sel, self.action_copy_table,
+               self.action_paste, self.action_interpolate, self.action_map_studio]
         out += [self.action_show_changes, self.action_compare_to, self.action_percent,
                 self.action_absolute, self.action_compare_off]
         return out
@@ -170,6 +225,12 @@ class TableMenuBar(QWidget):
     def _op(self, fn) -> None:
         fn(self._grid.model(), self._sel())
 
+    def _interpolate_selection(self) -> None:
+        try:
+            self._op(edit_ops.interpolate_selection)
+        except ValueError as exc:
+            QMessageBox.information(self, "Interpolate Selection", str(exc))
+
     def _paste(self) -> None:
         pasted = clipboard.paste(self._grid.model(), self._sel())
         self._grid.mark_last_paste(pasted)
@@ -177,6 +238,13 @@ class TableMenuBar(QWidget):
     def _undo_last(self) -> None:
         if self._grid.model().undo_last():
             self._grid.reconcile_last_paste_after_undo()
+
+    def _redo_last(self) -> None:
+        self._grid.model().redo_last()
+
+    def _sync_history_actions(self, can_undo: bool, can_redo: bool) -> None:
+        self.action_undo_sel.setEnabled(can_undo)
+        self.action_redo.setEnabled(can_redo)
 
     def _undo_all(self) -> None:
         clipboard.undo_all(self._grid.model())

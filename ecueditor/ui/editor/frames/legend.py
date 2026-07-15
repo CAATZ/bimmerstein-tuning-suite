@@ -2,9 +2,8 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel, QToolButton, QMenu
-from PySide6.QtGui import QPainter, QColor
+from PySide6.QtGui import QPainter
 from PySide6.QtCore import Signal, QSize
-from ecueditor.ui.design.colormaps import heat_color
 from ecueditor.ui.design.fonts import numeric_font
 
 
@@ -19,7 +18,7 @@ class _Ramp(QWidget):
         p = QPainter(self)
         w = max(1, self.width())
         for i in range(w):
-            p.setPen(QColor(*heat_color(i / (w - 1) if w > 1 else 0.0, self._model.colormap)))
+            p.setPen(self._model.legend_color(i / (w - 1) if w > 1 else 0.0))
             p.drawLine(i, 0, i, self.height())
         p.end()
 
@@ -46,7 +45,7 @@ class LegendStrip(QWidget):
         lay.addWidget(self._min); lay.addWidget(self._ramp, 1); lay.addWidget(self._max)
         lay.addWidget(self._selection)
         lay.addWidget(self._btn)
-        model.dataChanged.connect(lambda *_a: self.refresh())
+        model.colorScaleChanged.connect(self.refresh)
         model.modelReset.connect(self.refresh)
         if grid is not None:
             grid.selectionSummaryChanged.connect(self._set_selection_text)
@@ -57,11 +56,20 @@ class LegendStrip(QWidget):
         self.colormapChangeRequested.emit(name)
 
     def refresh(self) -> None:
-        lo, hi = self._model.real_bounds()
+        lo, hi = self._model.legend_bounds()
         scale = self._model.current_scale
-        self._min.setText(scale.format_value(lo))
-        self._max.setText(f"{scale.format_value(hi)} {scale.units}".rstrip())
+        if self._model.compare_active and self._model.compare_mode == "percent":
+            self._min.setText(self._format_percent(lo))
+            self._max.setText(self._format_percent(hi))
+        else:
+            self._min.setText(scale.format_value(lo))
+            self._max.setText(f"{scale.format_value(hi)} {scale.units}".rstrip())
         self._ramp.update()
+
+    @staticmethod
+    def _format_percent(value: float) -> str:
+        percent = 0.0 if abs(value) < 5e-15 else value * 100.0
+        return f"{percent:+.6g}%"
 
     def min_text(self) -> str: return self._min.text()
     def max_text(self) -> str: return self._max.text()

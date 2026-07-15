@@ -20,13 +20,24 @@ class CsvRecorder:
         self.path: Path | None = None
 
     def start(self, channels: Sequence[LoggerChannel]) -> Path:
+        self.stop()
         self._dir.mkdir(parents=True, exist_ok=True)
         stamp = self._timestamp or datetime.now().strftime("%Y%m%d_%H%M%S")
         infix = f"_{self._infix}" if self._infix else ""
-        self.path = self._dir / f"ecueditorlog{infix}_{stamp}.csv"
         self._channels = list(channels)
         self._start_ms = None
-        self._fh = self.path.open("w", newline="", encoding="utf-8")
+        stem = f"ecueditorlog{infix}_{stamp}"
+        suffix = 1
+        while True:
+            name = f"{stem}.csv" if suffix == 1 else f"{stem}_{suffix}.csv"
+            candidate = self._dir / name
+            try:
+                self._fh = candidate.open("x", newline="", encoding="utf-8")
+            except FileExistsError:
+                suffix += 1
+                continue
+            self.path = candidate
+            break
         self._writer = csv.writer(self._fh)
         time_header = "Time" if self._absolute else "Time (msec)"
         # header column = "name (units) [id]"; the "[id]" suffix lets PlaybackSource key replayed
@@ -36,7 +47,7 @@ class CsvRecorder:
             for c in self._channels
         ]
         self._writer.writerow(header)
-        return self.path
+        return candidate
 
     def write(self, sample: Sample) -> None:
         if self._writer is None:

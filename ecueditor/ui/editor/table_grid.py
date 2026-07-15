@@ -1,17 +1,25 @@
 from __future__ import annotations
+from bisect import bisect_left
+import math
+from typing import cast
+from typing import NamedTuple
+
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHeaderView,
     QLineEdit,
     QStyle,
+    QStyleOptionHeader,
     QStyledItemDelegate,
     QTableView,
+    QToolTip,
 )
 from PySide6.QtGui import QColor, QFontMetrics, QPalette, QPen, QPolygon
 from PySide6.QtCore import (
     QEvent,
     QItemSelection,
     QItemSelectionModel,
+    QModelIndex,
     QPoint,
     QRect,
     QSize,
@@ -31,6 +39,7 @@ class EditableAxisHeader(QHeaderView):
         super().__init__(orientation, parent)
         self._editor: QLineEdit | None = None
         self._edit_section = -1
+        self._label_cache: dict[int, str] | None = None
         self.setSectionsClickable(True)
         self.setMouseTracking(True)
         self.viewport().setMouseTracking(True)
@@ -38,6 +47,185 @@ class EditableAxisHeader(QHeaderView):
 
     def active_editor(self) -> QLineEdit | None:
         return self._editor
+
+    @staticmethod
+    def _fixed_axis(value: float, decimals: int) -> str:
+        label = f"{float(value):.{decimals}f}"
+        if decimals:
+            label = label.rstrip("0").rstrip(".")
+        return "0" if label in {"-0", "+0"} else label
+
+    def _section_count(self) -> int:
+        model = self.model()
+        if model is None:
+            return 0
+        if self.orientation() == Qt.Orientation.Horizontal:
+            return model.columnCount()
+        return model.rowCount()
+
+    def _build_display_labels(self) -> dict[int, str]:
+        """Return coarse display labels while keeping the model's exact values untouched."""
+        model = self.model()
+        count = self._section_count()
+        if model is None or count < 1:
+            return {}
+        exact = []
+        for section in range(count):
+            value = model.headerData(
+                section, self.orientation(), Qt.ItemDataRole.EditRole
+            )
+            if value is None:
+                value = model.headerData(
+                    section, self.orientation(), Qt.ItemDataRole.DisplayRole
+                )
+            exact.append(value)
+        numeric: list[float] = []
+        for value in exact:
+            try:
+                parsed = float(value)
+            except (TypeError, ValueError):
+                numeric = []
+                break
+            if not math.isfinite(parsed):
+                numeric = []
+                break
+            numeric.append(parsed)
+        if len(numeric) == count:
+            for decimals in range(13):
+                labels = [self._fixed_axis(value, decimals) for value in numeric]
+                seen: dict[str, float] = {}
+                collision = False
+                for label, value in zip(labels, numeric):
+                    previous = seen.setdefault(label, value)
+                    if previous != value:
+                        collision = True
+                        break
+                if not collision:
+                    return dict(enumerate(labels))
+            return {
+                section: f"{value:.17g}" for section, value in enumerate(numeric)
+            }
+        return {
+            section: str(
+                model.headerData(
+                    section, self.orientation(), Qt.ItemDataRole.DisplayRole
+                )
+                or ""
+            )
+            for section in range(count)
+        }
+
+    def _labels(self) -> dict[int, str]:
+        if self._label_cache is None:
+            self._label_cache = self._build_display_labels()
+        return self._label_cache
+
+    def display_label(self, section: int) -> str:
+        return self._labels().get(section, "")
+
+    def refresh_labels(self) -> set[int]:
+        old = self._label_cache
+        self._label_cache = None
+        new = self._labels()
+        changed = set(new) if old is None else {
+            section for section in set(old) | set(new)
+            if old.get(section) != new.get(section)
+        }
+        self.viewport().update()
+        return changed
+
+    def exact_tooltip(self, section: int) -> str:
+        model = self.model()
+        if model is None or not 0 <= section < self._section_count():
+            return ""
+        model_tip = model.headerData(
+            section, self.orientation(), Qt.ItemDataRole.ToolTipRole
+        )
+        exact = model.headerData(
+            section, self.orientation(), Qt.ItemDataRole.EditRole
+        )
+        if exact is None:
+            exact_text = str(
+                model.headerData(
+                    section, self.orientation(), Qt.ItemDataRole.DisplayRole
+                )
+                or ""
+            )
+        else:
+            try:
+                exact_text = repr(float(exact))
+            except (TypeError, ValueError):
+                exact_text = str(exact)
+        hint = "" if model_tip is None else str(model_tip)
+        if hint.startswith("Exact value:"):
+            return hint
+        return exact_text if not hint else f"{exact_text}\n{hint}"
+
+    def paintSection(self, painter, rect, logical_index: int) -> None:
+        if not rect.isValid():
+            return
+        option = QStyleOptionHeader()
+        self.initStyleOptionForIndex(option, logical_index)
+        option.rect = rect
+        option.text = self.display_label(logical_index)
+        self.style().drawControl(
+            QStyle.ControlElement.CE_Header, option, painter, self
+        )
+
+    def _styled_label_size(self, logical_index: int) -> QSize:
+        option = QStyleOptionHeader()
+        self.initStyleOptionForIndex(option, logical_index)
+        option.text = self.display_label(logical_index)
+        metrics = QFontMetrics(self.font())
+        contents = QSize(
+            metrics.horizontalAdvance(option.text),
+            metrics.height(),
+        )
+        return self.style().sizeFromContents(
+            QStyle.ContentsType.CT_HeaderSection,
+            option,
+            contents,
+            self,
+        )
+
+    def sectionSizeFromContents(self, logical_index: int) -> QSize:
+        base = super().sectionSizeFromContents(logical_index)
+        styled = self._styled_label_size(logical_index)
+        if self.orientation() == Qt.Orientation.Horizontal:
+            return QSize(
+                max(self.minimumSectionSize(), styled.width()),
+                max(base.height(), styled.height()),
+            )
+        return QSize(
+            max(1, styled.width()),
+            max(self.minimumSectionSize(), styled.height()),
+        )
+
+    def sizeHint(self) -> QSize:
+        hint = super().sizeHint()
+        if self.orientation() != Qt.Orientation.Vertical:
+            return hint
+        label_width = max(
+            (
+                self._styled_label_size(section).width()
+                for section in range(self._section_count())
+            ),
+            default=0,
+        )
+        return QSize(max(1, label_width), hint.height())
+
+    def viewportEvent(self, event) -> bool:
+        if event.type() == QEvent.Type.ToolTip:
+            position = event.pos()
+            coordinate = position.x() if self.orientation() == Qt.Orientation.Horizontal \
+                else position.y()
+            section = self.logicalIndexAt(int(coordinate))
+            tooltip = self.exact_tooltip(section)
+            if tooltip:
+                QToolTip.showText(event.globalPos(), tooltip, self.viewport())
+                return True
+            QToolTip.hideText()
+        return super().viewportEvent(event)
 
     def begin_axis_edit(self, section: int) -> bool:
         model = self.model()
@@ -131,7 +319,28 @@ class EditableAxisHeader(QHeaderView):
         self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
         super().leaveEvent(event)
 
+class _OverlayMetrics(NamedTuple):
+    compact: bool
+    paste_inset: int
+    paste_width: int
+    change_inset: int
+    change_width: int
+    marker_size: int
+    live_inset: int
+    live_width: int
+    current_inset: int
+    current_width: int
+    current_inner_inset: int | None
+
+
 class HeatMapDelegate(QStyledItemDelegate):
+    @staticmethod
+    def overlay_metrics(font, cell_height: int) -> _OverlayMetrics:
+        compact = cell_height < QFontMetrics(font).height() + 8
+        if compact:
+            return _OverlayMetrics(True, 0, 1, 0, 1, 3, 0, 1, 0, 1, None)
+        return _OverlayMetrics(False, 1, 3, 2, 2, 6, 5, 2, 1, 3, 3)
+
     def createEditor(self, parent, _option, _index):
         editor = QLineEdit(parent)
         editor.setFrame(False)
@@ -171,17 +380,24 @@ class HeatMapDelegate(QStyledItemDelegate):
                 QPalette.ColorRole.Text, QColor(*text_color_for(rgb))
             )
         super().paint(painter, opt, index)
+        overlay = self.overlay_metrics(opt.font, option.rect.height())
 
         if isinstance(view, TableGridWidget):
             edges = view.last_paste_edges(index)
             if edges:
                 painter.save()
-                inset = option.rect.adjusted(1, 1, -2, -2)
-                width = 4 if view.paste_flash_active() else 3
-                for pen in (
-                    QPen(QColor("#101215"), width, Qt.PenStyle.DashLine),
-                    QPen(QColor(t.warn), max(1, width - 2), Qt.PenStyle.DashLine),
-                ):
+                inset_value = overlay.paste_inset
+                inset = option.rect.adjusted(
+                    inset_value, inset_value, -inset_value - 1, -inset_value - 1
+                )
+                width = overlay.paste_width
+                if not overlay.compact and view.paste_flash_active():
+                    width += 1
+                pens = [QPen(QColor(t.warn), width, Qt.PenStyle.DashLine)]
+                if not overlay.compact:
+                    pens.insert(0, QPen(QColor("#101215"), width, Qt.PenStyle.DashLine))
+                    pens[-1].setWidth(max(1, width - 2))
+                for pen in pens:
                     painter.setPen(pen)
                     if "top" in edges:
                         painter.drawLine(inset.topLeft(), inset.topRight())
@@ -197,35 +413,44 @@ class HeatMapDelegate(QStyledItemDelegate):
         if change is not None:
             painter.save()
             color = QColor(t.increase_border if change == "increase" else t.decrease_border)
-            painter.setPen(QPen(color, 2))
-            painter.drawRect(option.rect.adjusted(2, 2, -3, -3))
+            painter.setPen(QPen(color, overlay.change_width))
+            inset = overlay.change_inset
+            painter.drawRect(option.rect.adjusted(inset, inset, -inset - 1, -inset - 1))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(color)
             if change == "increase":
-                corner = option.rect.topRight() + QPoint(-3, 3)
+                corner = option.rect.topRight() + QPoint(-inset - 1, inset + 1)
                 triangle = QPolygon([
-                    corner, corner + QPoint(-6, 0), corner + QPoint(0, 6)
+                    corner,
+                    corner + QPoint(-overlay.marker_size, 0),
+                    corner + QPoint(0, overlay.marker_size),
                 ])
             else:
-                corner = option.rect.bottomRight() + QPoint(-3, -3)
+                corner = option.rect.bottomRight() + QPoint(-inset - 1, -inset - 1)
                 triangle = QPolygon([
-                    corner, corner + QPoint(-6, 0), corner + QPoint(0, -6)
+                    corner,
+                    corner + QPoint(-overlay.marker_size, 0),
+                    corner + QPoint(0, -overlay.marker_size),
                 ])
             painter.drawPolygon(triangle)
             painter.restore()
 
         if model.is_live_cell(index):
             painter.save()
-            painter.setPen(QPen(QColor(t.live_ring), 2))
-            painter.drawRect(option.rect.adjusted(5, 5, -6, -6))
+            painter.setPen(QPen(QColor(t.live_ring), overlay.live_width))
+            inset = overlay.live_inset
+            painter.drawRect(option.rect.adjusted(inset, inset, -inset - 1, -inset - 1))
             painter.restore()
 
         if isinstance(view, TableGridWidget) and view.is_current_index(index):
             painter.save()
-            painter.setPen(QPen(QColor("#101215"), 3))
-            painter.drawRect(option.rect.adjusted(1, 1, -2, -2))
-            painter.setPen(QPen(QColor("#f7f7f7"), 1))
-            painter.drawRect(option.rect.adjusted(3, 3, -4, -4))
+            painter.setPen(QPen(QColor(t.sel_ring), overlay.current_width))
+            inset = overlay.current_inset
+            painter.drawRect(option.rect.adjusted(inset, inset, -inset - 1, -inset - 1))
+            if overlay.current_inner_inset is not None:
+                inner = overlay.current_inner_inset
+                painter.setPen(QPen(QColor(t.sel_ring_inner), 1))
+                painter.drawRect(option.rect.adjusted(inner, inner, -inner - 1, -inner - 1))
             painter.restore()
 
 class TableGridWidget(QTableView):
@@ -252,6 +477,15 @@ class TableGridWidget(QTableView):
         self._min_col_w = 42
         self._natural_widths: list[int] = []
         self._compact_widths: list[int] = []
+        self._pending_autofit_columns: set[int] = set()
+        self._autofit_timer = QTimer(self)
+        self._autofit_timer.setSingleShot(True)
+        self._autofit_timer.setInterval(0)
+        self._autofit_timer.timeout.connect(self._flush_column_autofit)
+        self._configuring_display = False
+        self._fitting_columns = False
+        self._live_lookup_values: list[float] | None = None
+        self._live_lookup_entries: list[tuple[int, QModelIndex]] | None = None
         self._selection_drag_active = False
         self._last_paste_cells: set[tuple[int, int]] = set()
         self._last_paste_undo_depth: int | None = None
@@ -261,8 +495,13 @@ class TableGridWidget(QTableView):
         self._paste_flash_timer.timeout.connect(self._finish_paste_flash)
         self.selectionModel().selectionChanged.connect(self._selection_visual_changed)
         self.selectionModel().currentChanged.connect(self._selection_visual_changed)
-        model.modelReset.connect(lambda: self.autofit_columns(self._min_col_w))
-        model.headerDataChanged.connect(lambda *_args: self.autofit_columns(self._min_col_w))
+        model.modelReset.connect(self._on_model_reset)
+        model.dataChanged.connect(self._on_model_data_changed)
+        model.headerDataChanged.connect(self._on_header_data_changed)
+
+    def model(self) -> TableGridModel:
+        """Return the concrete model installed by this view's constructor."""
+        return cast(TableGridModel, super().model())
 
     def selected_indexes(self):
         return self.selectionModel().selectedIndexes()
@@ -287,9 +526,25 @@ class TableGridWidget(QTableView):
         self._last_paste_cells = cells
         self._last_paste_undo_depth = self.model().undo_depth()
         selection = QItemSelection()
-        for row, column in sorted(cells):
-            index = self.model().index(row, column)
-            selection.select(index, index)
+        columns_by_row: dict[int, list[int]] = {}
+        for row, column in cells:
+            columns_by_row.setdefault(row, []).append(column)
+        for row, columns in sorted(columns_by_row.items()):
+            ordered = sorted(columns)
+            run_start = run_stop = ordered[0]
+            for column in ordered[1:]:
+                if column == run_stop + 1:
+                    run_stop = column
+                    continue
+                selection.select(
+                    self.model().index(row, run_start),
+                    self.model().index(row, run_stop),
+                )
+                run_start = run_stop = column
+            selection.select(
+                self.model().index(row, run_start),
+                self.model().index(row, run_stop),
+            )
         selected = self.selectionModel()
         selected.select(selection, QItemSelectionModel.SelectionFlag.ClearAndSelect)
         first_row, first_column = min(cells)
@@ -394,11 +649,7 @@ class TableGridWidget(QTableView):
         widths = self._natural_widths or [
             self.columnWidth(column) for column in range(model.columnCount())
         ]
-        # Studio may need to clamp a tall map vertically, at which point Qt introduces a
-        # vertical scrollbar and takes its width from the data viewport.  Reserve that native
-        # extent up front so the last value column still opens completely visible.
-        scrollbar_extent = self.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent)
-        width = self.verticalHeader().sizeHint().width() + sum(widths) + scrollbar_extent
+        width = self.verticalHeader().sizeHint().width() + sum(widths)
         height = self.horizontalHeader().sizeHint().height() + sum(
             self.rowHeight(row) for row in range(model.rowCount())
         )
@@ -426,6 +677,43 @@ class TableGridWidget(QTableView):
     def set_color_cells(self, on: bool) -> None:
         self.model().set_color_cells(on); self.viewport().update()
 
+    def setFont(self, font) -> None:
+        """Keep dense cell and axis typography on the same metric contract."""
+        super().setFont(font)
+        for header in (self.horizontalHeader(), self.verticalHeader()):
+            if header is not None:
+                header.setFont(font)
+                header.updateGeometry()
+        if hasattr(self, "_min_col_w") and not self._configuring_display:
+            self.autofit_columns(self._min_col_w)
+
+    def configure_display(
+        self,
+        *,
+        font,
+        density: str,
+        row_height: int,
+        minimum_column_width: int,
+    ) -> None:
+        """Apply one complete display projection and solve section geometry once."""
+        self._configuring_display = True
+        try:
+            super().setFont(font)
+            for header in (self.horizontalHeader(), self.verticalHeader()):
+                header.setFont(font)
+                header.updateGeometry()
+            self.set_density(density)
+            self.verticalHeader().setDefaultSectionSize(row_height)
+            model = self.model()
+            if model is not None:
+                for row in range(model.rowCount()):
+                    self.verticalHeader().resizeSection(row, row_height)
+            self.horizontalHeader().setDefaultSectionSize(minimum_column_width)
+        finally:
+            self._configuring_display = False
+        self.autofit_columns(minimum_column_width)
+        self.updateGeometry()
+
     def set_density(self, density: str) -> None:
         """Select spacing floors used by the display-only Normal/Compact projection."""
         self._density = "compact" if density == "compact" else "normal"
@@ -433,43 +721,204 @@ class TableGridWidget(QTableView):
         self.horizontalHeader().setMinimumSectionSize(28 if compact else 36)
         self.verticalHeader().setMinimumSectionSize(14 if compact else 18)
 
+    def _on_model_reset(self) -> None:
+        horizontal = self.horizontalHeader()
+        vertical = self.verticalHeader()
+        if isinstance(horizontal, EditableAxisHeader):
+            horizontal.refresh_labels()
+        if isinstance(vertical, EditableAxisHeader):
+            vertical.refresh_labels()
+        self._invalidate_live_value_lookup()
+        self._live_index = None
+        self.model().set_live_cell(None)
+        self.autofit_columns(self._min_col_w)
+
+    def _on_model_data_changed(self, top_left, bottom_right, roles=()) -> None:
+        text_roles = {
+            int(Qt.ItemDataRole.DisplayRole),
+            int(Qt.ItemDataRole.EditRole),
+        }
+        if roles and not text_roles.intersection(map(int, roles)):
+            return
+        self._invalidate_live_value_lookup()
+        self._queue_column_autofit(top_left.column(), bottom_right.column())
+
+    def _on_header_data_changed(self, orientation, first: int, last: int) -> None:
+        header = (
+            self.horizontalHeader()
+            if orientation == Qt.Orientation.Horizontal
+            else self.verticalHeader()
+        )
+        changed = header.refresh_labels() if isinstance(header, EditableAxisHeader) else set()
+        if orientation == Qt.Orientation.Horizontal:
+            affected = changed or set(range(first, last + 1))
+            for column in affected:
+                self._queue_column_autofit(column, column)
+            return
+        header.updateGeometry()
+        self.updateGeometries()
+        self._fit_columns_to_view()
+
+    def _queue_column_autofit(self, first: int, last: int) -> None:
+        model = self.model()
+        if model is None or model.columnCount() < 1:
+            return
+        first = max(0, first)
+        last = min(model.columnCount() - 1, last)
+        if last < first:
+            return
+        self._pending_autofit_columns.update(range(first, last + 1))
+        if not self._autofit_timer.isActive():
+            self._autofit_timer.start()
+
+    def _flush_column_autofit(self) -> None:
+        model = self.model()
+        columns = sorted(self._pending_autofit_columns)
+        self._pending_autofit_columns.clear()
+        if model is None or not columns:
+            return
+        if len(self._natural_widths) != model.columnCount() \
+                or len(self._compact_widths) != model.columnCount():
+            self.autofit_columns(self._min_col_w)
+            return
+        metrics = QFontMetrics(self.font())
+        for column in columns:
+            natural, compact = self._measure_column(column, metrics)
+            self._natural_widths[column] = natural
+            self._compact_widths[column] = compact
+        self._fit_columns_to_view()
+
+    def _measure_column(self, column: int, metrics: QFontMetrics) -> tuple[int, int]:
+        model = self.model()
+        header = self.horizontalHeader()
+        if isinstance(header, EditableAxisHeader):
+            axis_label = header.display_label(column)
+        else:
+            axis_label = str(
+                model.headerData(
+                    column, Qt.Orientation.Horizontal, Qt.ItemDataRole.DisplayRole
+                )
+                or ""
+            )
+        labels = [
+            str(model.data(model.index(row, column), Qt.ItemDataRole.DisplayRole) or "")
+            for row in range(model.rowCount())
+        ]
+        text_width = max((metrics.horizontalAdvance(label) for label in labels), default=0)
+        compact_density = self._density == "compact"
+        width_floor = 28 if compact_density else 36
+        header_width = (
+            header.sectionSizeFromContents(column).width()
+            if isinstance(header, EditableAxisHeader)
+            else metrics.horizontalAdvance(axis_label) + 8
+        )
+        compact = max(width_floor, header_width, text_width + 8)
+        return max(self._min_col_w, compact), compact
+
     def autofit_columns(self, min_width: int) -> None:
         """Fit full values and compact configured padding before introducing a scrollbar."""
         self._min_col_w = min_width
         m = self.model()
         if m is not None:
             metrics = QFontMetrics(self.font())
-            compact_density = self._density == "compact"
-            width_floor = 28 if compact_density else 36
-            text_padding = 8
-            self._natural_widths = []
-            self._compact_widths = []
-            for c in range(m.columnCount()):
-                labels = [str(m.headerData(c, Qt.Orientation.Horizontal, Qt.DisplayRole) or "")]
-                labels.extend(
-                    str(m.data(m.index(row, c), Qt.DisplayRole) or "")
-                    for row in range(m.rowCount())
-                )
-                text_width = max((metrics.horizontalAdvance(label) for label in labels), default=0)
-                delegate_width = self.sizeHintForColumn(c)
-                compact = max(width_floor, text_width + text_padding, delegate_width)
-                self._compact_widths.append(compact)
-                self._natural_widths.append(max(min_width, compact))
+            self._autofit_timer.stop()
+            self._pending_autofit_columns.clear()
+            measured = [self._measure_column(column, metrics) for column in range(m.columnCount())]
+            self._natural_widths = [natural for natural, _compact in measured]
+            self._compact_widths = [compact for _natural, compact in measured]
             self._fit_columns_to_view()
 
+    @staticmethod
+    def _allocate_column_widths(
+        preferred: list[int], minimum: list[int], available: int
+    ) -> list[int]:
+        """Continuously fit widths between content minima and preferred widths."""
+        if not preferred or len(preferred) != len(minimum):
+            return list(preferred)
+        preferred = [max(int(low), int(high)) for high, low in zip(preferred, minimum)]
+        minimum = [max(1, int(width)) for width in minimum]
+        preferred_total = sum(preferred)
+        minimum_total = sum(minimum)
+        if preferred_total <= available:
+            return preferred
+        if minimum_total >= available:
+            return minimum
+        capacity = preferred_total - minimum_total
+        budget = available - minimum_total
+        exact = [
+            low + (high - low) * budget / capacity
+            for high, low in zip(preferred, minimum)
+        ]
+        fitted = [math.floor(width) for width in exact]
+        remainder = available - sum(fitted)
+        order = sorted(
+            range(len(fitted)),
+            key=lambda index: (-(exact[index] - fitted[index]), index),
+        )
+        for index in order[:remainder]:
+            fitted[index] += 1
+        return fitted
+
     def _fit_columns_to_view(self) -> None:
-        if not self._natural_widths:
+        if not self._natural_widths or self._fitting_columns:
             return
-        available = max(0, self.viewport().width() - 1)
-        preferred = self._natural_widths
-        compact = self._compact_widths or preferred
-        widths = preferred if sum(preferred) <= available else compact
-        for column, width in enumerate(widths):
-            self.setColumnWidth(column, width)
+        self._fitting_columns = True
+        try:
+            extent = self.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent)
+            horizontal_bar = self.horizontalScrollBar()
+            # maximumViewportSize() describes the stable cell area with neither
+            # scrollbar installed. Deriving this from the current viewport plus
+            # whichever bars happen to be visible makes fitting depend on Qt's
+            # deferred layout/event order.
+            maximum_viewport = self.maximumViewportSize()
+            base_width = maximum_viewport.width()
+            base_height = maximum_viewport.height()
+            row_total = sum(self.rowHeight(row) for row in range(self.model().rowCount()))
+            minimum = self._compact_widths or self._natural_widths
+            vertical_needed = row_total > base_height
+            widths = list(self._natural_widths)
+            for _iteration in range(3):
+                available_width = max(0, base_width - (extent if vertical_needed else 0))
+                widths = self._allocate_column_widths(
+                    self._natural_widths, minimum, available_width
+                )
+                horizontal_needed = sum(widths) > available_width
+                available_height = max(
+                    0, base_height - (extent if horizontal_needed else 0)
+                )
+                updated_vertical = row_total > available_height
+                if updated_vertical == vertical_needed:
+                    break
+                vertical_needed = updated_vertical
+            for column, width in enumerate(widths):
+                self.setColumnWidth(column, width)
+            overflow = max(0, sum(widths) - available_width)
+            self.updateGeometries()
+            horizontal_bar.setPageStep(available_width)
+            horizontal_bar.setRange(0, overflow)
+        finally:
+            self._fitting_columns = False
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._fit_columns_to_view()
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        metric_events = {
+            QEvent.Type.FontChange,
+            QEvent.Type.ApplicationFontChange,
+            QEvent.Type.StyleChange,
+        }
+        if event.type() in metric_events and hasattr(self, "_min_col_w") \
+                and not self._configuring_display:
+            horizontal = self.horizontalHeader()
+            vertical = self.verticalHeader()
+            if isinstance(horizontal, EditableAxisHeader):
+                horizontal.refresh_labels()
+            if isinstance(vertical, EditableAxisHeader):
+                vertical.refresh_labels()
+            self.autofit_columns(self._min_col_w)
 
     # --- live-overlay hook (INTERFACES.md §ui/ contracts table_grid.py) -------
     #     Phase 2 provides this; Phase 4's LiveOverlayBridge calls set_live_value per Sample.
@@ -483,22 +932,71 @@ class TableGridWidget(QTableView):
 
         `real` is already an engineering value — it is never re-scaled here.
         """
-        model = self.model()
-        if real is None:
-            self._live_index = None
-            model.set_live_cell(None)
-            self.viewport().update()
+        if real is None or not math.isfinite(float(real)):
+            self._set_live_index(None)
             return
+        if self._live_lookup_values is None or self._live_lookup_entries is None:
+            self._build_live_value_lookup()
+        values = self._live_lookup_values or []
+        entries = self._live_lookup_entries or []
+        if not values:
+            self._set_live_index(None)
+            return
+        position = bisect_left(values, float(real))
+        candidates = {
+            candidate
+            for candidate in (position - 1, position)
+            if 0 <= candidate < len(values)
+        }
+        best = min(
+            candidates,
+            key=lambda candidate: (
+                abs(values[candidate] - float(real)),
+                entries[candidate][0],
+            ),
+        )
+        self._set_live_index(entries[best][1])
+
+    def _invalidate_live_value_lookup(self) -> None:
+        self._live_lookup_values = None
+        self._live_lookup_entries = None
+
+    def _build_live_value_lookup(self) -> None:
+        """Cache a sorted real-value-to-cell index for logarithmic live lookup."""
+        model = self.model()
         sx, sy = model.table.shape()
-        best = None
-        best_dist = None
+        by_value: dict[float, tuple[int, QModelIndex]] = {}
         for x in range(sx):
             for y in range(sy):
-                cell_real = model.current_scale.to_real(model.table.cell_at(x, y).raw)
-                dist = abs(cell_real - real)
-                if best_dist is None or dist < best_dist:
-                    best_dist = dist
-                    best = model.index_for_cell(x, y)
-        self._live_index = best
-        model.set_live_cell(best)
-        self.viewport().update()
+                cell_real = float(
+                    model.current_scale.to_real(model.table.cell_at(x, y).raw)
+                )
+                if not math.isfinite(cell_real):
+                    continue
+                ordinal = x * sy + y
+                existing = by_value.get(cell_real)
+                if existing is None or ordinal < existing[0]:
+                    by_value[cell_real] = (ordinal, model.index_for_cell(x, y))
+        ordered = sorted(by_value.items())
+        self._live_lookup_values = [value for value, _entry in ordered]
+        self._live_lookup_entries = [entry for _value, entry in ordered]
+
+    @staticmethod
+    def _same_index(left, right) -> bool:
+        if left is None or right is None:
+            return left is right
+        return left.isValid() and right.isValid() \
+            and left.row() == right.row() and left.column() == right.column()
+
+    def _set_live_index(self, index) -> None:
+        previous = self._live_index
+        if self._same_index(previous, index):
+            return
+        self._live_index = index
+        self.model().set_live_cell(index)
+        for dirty in (previous, index):
+            if dirty is None or not dirty.isValid():
+                continue
+            rect = self.visualRect(dirty)
+            if rect.isValid() and not rect.isEmpty():
+                self.viewport().update(rect)

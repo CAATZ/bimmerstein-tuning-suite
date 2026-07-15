@@ -1,14 +1,40 @@
 from __future__ import annotations
+import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, Callable, TypeVar
 from ecueditor.core.defs.library import DefinitionLibrary
 from ecueditor.core.defs.model import RomDefinition
 from ecueditor.core.memory.base import MemoryModel
+from ecueditor.core.memory import model_for_match, probe_offset
 from ecueditor.core.rom.cell import DataCell
 from ecueditor.core.rom import storage
 from ecueditor.core.rom.table import Table, build_table, iter_storage_cells
 from ecueditor.core.errors import NoMatchingRomError, ECUEditorError, ChecksumError
 from ecueditor.core.checksum.base import ChecksumManager
+
+if TYPE_CHECKING:
+    from ecueditor.core.settings import EditorSettings
+
+_T = TypeVar("_T")
+
+
+def _run_checksum_operation(
+    manager: ChecksumManager,
+    operation: str,
+    callback: Callable[[], _T],
+) -> _T:
+    """Normalize optional checksum runtime failures without swallowing user interrupts."""
+    try:
+        return callback()
+    except ChecksumError:
+        raise
+    except (Exception, SystemExit) as exc:
+        detail = str(exc) or type(exc).__name__
+        raise ChecksumError(
+            f"checksum manager {type(manager).__name__} failed during {operation}: {detail}"
+        ) from exc
 
 
 def _read_bytes(path) -> bytearray:
@@ -16,6 +42,26 @@ def _read_bytes(path) -> bytearray:
         return bytearray(Path(path).read_bytes())
     except FileNotFoundError as exc:
         raise ECUEditorError(f"ROM file not found: {path}") from exc
+
+
+def _atomic_write_bytes(target: Path, payload: bytes) -> None:
+    """Durably stage ``payload`` beside ``target``, then atomically replace it."""
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, target)
+    except BaseException:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 @dataclass(frozen=True)
@@ -29,7 +75,8 @@ class _CellBinding:
 
 class RomImage:
     def __init__(self, data: bytearray, definition: RomDefinition,
-                 memory_model: MemoryModel, path: Path | None) -> None:
+                 memory_model: MemoryModel, path: Path | None,
+                 *, force_loaded: bool = False) -> None:
         self.data = data
         self.definition = definition
         self.memory_model = memory_model
@@ -40,9 +87,11 @@ class RomImage:
         self._cell_bindings: dict[int, _CellBinding] = {}
         self._byte_bindings: dict[int, list[_CellBinding]] = {}
         self._live_aliases_bound = False
+        self._force_loaded = force_loaded
 
     @classmethod
-    def open(cls, path, library: DefinitionLibrary) -> "RomImage":
+    def open(cls, path, library: DefinitionLibrary,
+             *, settings: "EditorSettings | None" = None) -> "RomImage":
         data = _read_bytes(path)
         match = library.match(bytes(data))
         if match is None:
@@ -50,34 +99,50 @@ class RomImage:
         doc, rid, model = match
         definition = doc.resolve(rid.xmlid)
         rom = cls(data, definition, model, Path(path))
-        rom._bind_checksum()
+        rom._bind_checksum(settings)
         return rom
 
     @classmethod
-    def force_open(cls, path, library: DefinitionLibrary, xmlid: str) -> "RomImage":
+    def force_open(cls, path, library: DefinitionLibrary, xmlid: str,
+                   *, settings: "EditorSettings | None" = None) -> "RomImage":
         data = _read_bytes(path)
         definition, model = library.force_load(bytes(data), xmlid)
-        rom = cls(data, definition, model, Path(path))
-        rom._bind_checksum()
+        rom = cls(data, definition, model, Path(path), force_loaded=True)
+        rom._bind_checksum(settings)
         return rom
 
-    def _bind_checksum(self) -> None:
+    def _bind_checksum(self, settings: "EditorSettings | None" = None) -> None:
         from ecueditor.core.checksum.builtins.ms41 import MS41Checksum
         from ecueditor.core.plugins.registry import CHECKSUMS
-        # (1) A declared <checksum type> wins (imported non-MS41 defs); MS41 defs have none.
-        ctype = self.definition.checksum_type
+        override = None
+        if settings is not None:
+            override = settings.checksum_override.get(self.definition.romid.xmlid) or None
+        # A settings override wins last; otherwise honor a declared checksum type. If neither
+        # exists, the native MS41 manager is bound below for both supported framings.
+        ctype = override or self.definition.checksum_type
         if ctype:
+            source = "settings override" if override else "definition"
             try:
                 factory = CHECKSUMS.get(ctype)
             except KeyError as exc:
-                raise ChecksumError(f"unregistered checksum type {ctype!r}") from exc
-            self.checksum_manager = factory()
+                raise ChecksumError(
+                    f"{source} names unregistered checksum type {ctype!r}"
+                ) from exc
+            try:
+                manager = factory()
+                if not isinstance(manager, ChecksumManager):
+                    raise TypeError("does not implement the ChecksumManager contract")
+            except (Exception, SystemExit) as exc:
+                detail = str(exc) or type(exc).__name__
+                raise ChecksumError(
+                    f"{source} checksum type {ctype!r} failed to initialize: {detail}"
+                ) from exc
+            self.checksum_manager = manager
             return
         # (2) Bind the MS41 manager for BOTH framings — it handles 256 KB (boot+program+cal) and
         #     24 KB (cal table only) internally. For an MS41.3 full read, skip the unverified program CRC.
         correct_program = not self._is_ms41_3_full_read()
         self.checksum_manager = MS41Checksum(correct_program=correct_program)
-        # (3) per-ROM user override is applied by the caller (EditorSettings.checksum_override) if set.
 
     def _is_ms41_3_full_read(self) -> bool:
         # MS41.3 == the SS1v2 / SHINDE1 firmware family; only relevant for a 256 KB full read.
@@ -87,15 +152,25 @@ class RomImage:
         return (rid.ecuid or "").upper() == "SHINDE1" or rid.xmlid in {"SS1v2", "SS1v0"}
 
     def checksum_status(self) -> tuple[bool, list[str]]:
-        if self.checksum_manager is None:
+        manager = self.checksum_manager
+        if manager is None:
             return True, ["no checksum manager bound"]
-        return self.checksum_manager.validate(bytes(self.data))
+        return _run_checksum_operation(
+            manager,
+            "validate",
+            lambda: manager.validate(bytes(self.data)),
+        )
 
     def checksum_report(self):
         """Return per-region checksum status, or ``None`` when no manager is bound."""
-        if self.checksum_manager is None:
+        manager = self.checksum_manager
+        if manager is None:
             return None
-        return self.checksum_manager.report(bytes(self.data))
+        return _run_checksum_operation(
+            manager,
+            "report",
+            lambda: manager.report(bytes(self.data)),
+        )
 
     @property
     def endian_default(self) -> str:
@@ -176,6 +251,46 @@ class RomImage:
     def is_dirty(self) -> bool:
         return any(t.needs_write() for t in self._tables.values())
 
+    def reload_from_disk(self) -> None:
+        """Replace the working image with a compatible copy reread from ``path``.
+
+        Reload is deliberately in-place: open table models, 3D views, Map Studio documents,
+        and the live storage-alias index all retain references to this RomImage and its Table /
+        DataCell graph.  The on-disk image must therefore still match the loaded RomId, byte
+        length, and framing-derived memory model.  An incompatible replacement is rejected
+        before any live state is changed and must be opened as a separate ROM instead.
+        """
+        if self.path is None:
+            raise ECUEditorError("ROM has no source file to reload")
+
+        fresh = _read_bytes(self.path)
+        if len(fresh) != len(self.data):
+            raise ECUEditorError(
+                "ROM file size changed from "
+                f"{len(self.data)} to {len(fresh)} bytes; reopen it as a separate ROM"
+            )
+
+        romid = self.definition.romid
+        probe = probe_offset(romid, len(fresh))
+        if not self._force_loaded and not romid.matches(bytes(fresh), probe=probe):
+            raise ECUEditorError(
+                f"ROM on disk no longer matches the loaded definition {romid.xmlid!r}; "
+                "reopen it as a separate ROM"
+            )
+        fresh_model = model_for_match(romid, len(fresh))
+        if fresh_model.name != self.memory_model.name:
+            raise ECUEditorError(
+                "ROM on disk requires a different memory model; reopen it as a separate ROM"
+            )
+
+        # Preserve the bytearray identity as well as every materialized Table/DataCell identity.
+        # Table.resync() adopts changed raw bytes; set_revert_point(False) is also required for
+        # the subtle case where a local edit already equals the newly read disk value.
+        self.data[:] = fresh
+        for table in self._tables.values():
+            table.resync(self.data, self.memory_model, self._endian_default)
+            table.set_revert_point(pending_write=False)
+
     def flush(self) -> None:
         """Materialize pending writes, then defensively re-read any externally changed bytes.
 
@@ -188,15 +303,35 @@ class RomImage:
             t.resync(self.data, self.memory_model, self._endian_default)
 
     def save(self, path=None) -> list[str]:
-        self.flush()
-        notes: list[str] = []
-        if self.checksum_manager is not None:
-            notes += self.checksum_manager.update(self.data)
         target = Path(path) if path else self.path
         if target is None:
             raise ValueError("no path to save to")
-        target.write_bytes(bytes(self.data))
-        # reset revert points so a re-save is clean
+
+        # Nothing below mutates the live working image or any cell baseline until the atomic
+        # replacement succeeds. This preserves the only pending-write marker on every failure
+        # path, including a checksum plugin that mutates its input before raising.
+        candidate = bytearray(self.data)
+        for table in self._tables.values():
+            table.write_back(candidate, self.memory_model, self._endian_default)
+        notes: list[str] = []
+        manager = self.checksum_manager
+        if manager is not None:
+            notes += _run_checksum_operation(
+                manager,
+                "update",
+                lambda: manager.update(candidate),
+            )
+        if len(candidate) != len(self.data):
+            raise ChecksumError(
+                f"checksum manager changed ROM image size from {len(self.data):,} "
+                f"to {len(candidate):,} bytes"
+            )
+        _atomic_write_bytes(target, bytes(candidate))
+
+        self.data[:] = candidate
+        for table in self._tables.values():
+            table.resync(self.data, self.memory_model, self._endian_default)
+        # The durable replacement is complete; reset visual and storage-dirty baselines.
         for t in self._tables.values():
             t.set_revert_point(pending_write=False)
         self.path = target

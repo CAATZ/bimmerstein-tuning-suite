@@ -103,11 +103,17 @@ class DynoTab(QtWidgets.QWidget):
     def _on_mode_toggled(self, _on: bool) -> None:
         """Clear plotted curves on a mode switch -- they were computed for the OTHER mode's
         axes. Presentation only: _run/_capture/_et_capture stay reusable (Recalculate etc.)."""
+        if self._record.isChecked():
+            self._record.blockSignals(True)
+            self._record.setChecked(False)
+            self._record.blockSignals(False)
+            self._finish_recording_mode(et_mode=not _on)
         for c in self._live_curves + self._ref_curves:
             self._plot.removeItem(c)
         self._live_curves = []
         self._ref_curves = []
         self._et_trace = []
+        self._update_record_enabled()
         self._relabel_axes()
 
     # --- axis labels (fact base §4.6: Metric relabels the power axis) ------------------------
@@ -144,6 +150,18 @@ class DynoTab(QtWidgets.QWidget):
                 "cars_def_path in settings.json")
         else:
             self._record.setEnabled(True)
+
+        self._update_record_enabled()
+
+    def _update_record_enabled(self) -> None:
+        enabled = self.et_mode() or bool(self._profiles)
+        self._record.setEnabled(enabled)
+        if not self._profiles and not self.et_mode():
+            self.status_label.setText(
+                "Missing cars_def.xml - place it next to the logger definition, or set "
+                "cars_def_path in settings.json")
+        elif self.status_label.text().startswith("Missing cars_def.xml"):
+            self.status_label.clear()
 
     def set_speed_units_kmh(self, kmh: bool) -> None:
         """True when the vehicle-speed channel reports km/h (the composition root reads the
@@ -196,11 +214,11 @@ class DynoTab(QtWidgets.QWidget):
             if cap.is_stopped:
                 self._record.setChecked(False)     # past 1330 ft -> finish + splits
             return
-        cap = self._capture
-        if cap is None:
+        dyno_capture = self._capture
+        if dyno_capture is None:
             return
-        cap.accept(sample)                     # UI thread; the poll thread never calls in here
-        if cap.is_stopped:
+        dyno_capture.accept(sample)             # UI thread; the poll thread never calls in here
+        if dyno_capture.is_stopped:
             self._record.setChecked(False)     # throttle lift ended the pull -> finish + plot
 
     def _on_record_toggled(self, on: bool) -> None:
@@ -225,7 +243,10 @@ class DynoTab(QtWidgets.QWidget):
         self.status_label.setText("Accelerate using WOT when ready!!")   # fact base §4.6 prompt
 
     def _finish_recording(self) -> None:
-        if self.et_mode():
+        self._finish_recording_mode(et_mode=self.et_mode())
+
+    def _finish_recording_mode(self, *, et_mode: bool) -> None:
+        if et_mode:
             if self._et_capture is None:
                 return
             self.status_label.setText(_format_et(self._et_capture.finish()))

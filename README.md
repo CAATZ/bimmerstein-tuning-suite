@@ -12,10 +12,9 @@ calibration workflows, but it is not a Git fork of RomRaider.
 
 ## Beta release
 
-The current testing version is **0.1.0 Beta 1** (`v0.1.0b1`). It is intended for testing and
-feedback, not production use.
+The current public beta is **0.1.0 Beta 2** (`0.1.0b2`):
 
-[Download BimmerStein Tuning Suite 0.1.0 Beta 1](https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b1)
+[Download BimmerStein Tuning Suite 0.1.0 Beta 2](https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b2)
 
 The release provides:
 
@@ -33,14 +32,17 @@ unknown-publisher warning.
 - Open calibration BIN files using user-supplied RomRaider-compatible XML definitions.
 - Edit scalar values, switches, table values, and table axes.
 - Propagate edits across tables that share the same physical axis data.
-- Copy, paste, interpolate, compare, undo, and create revert points.
+- Copy, paste, interpolate selections, compare, undo, and create revert points.
+- Open curves and maps in the integrated Map Studio to expand padded low-density tables, resample
+  onto editable breakpoint grids, repair or smooth values, and review changes before one-step apply.
 - Inspect parameter descriptions, storage addresses, scaling, ranges, and related metadata.
-- Use small, medium, or large table windows with compact or normal table density.
+- Use deterministic content-sized table windows with compact or normal table density.
 - Poll and record DS2 live data through supported serial transports.
 - Display live data in tables, graphs, gauges, and dashboards.
 - Perform virtual-dyno analysis from recorded data.
-- Extend supported transports, protocols, definitions, checksums, analyses, and memory models
-  through plugins.
+- Extend supported transports, protocols, definitions, checksums, and analyses through plugins.
+  External-source registration is available for plugin development, with logger-pane polling still
+  tracked as deferred work; memory-model selection remains a core-owned safety policy.
 
 ## Important safety information
 

@@ -4,6 +4,21 @@ from ecueditor.core.errors import TableError
 _WIDTH = {"uint8": 1, "int8": 1, "uint16": 2, "int16": 2, "uint32": 4, "int32": 4,
           "float": 4, "movi20": 4, "movi20s": 4}
 
+
+def _require_integer_storage(storage_type: str) -> None:
+    if storage_type == "float":
+        raise TableError(
+            "floating-point storage is not supported by integer-backed ROM table cells"
+        )
+
+
+def _check_range(data, offset: int, width: int) -> None:
+    if offset < 0 or offset + width > len(data):
+        raise TableError(
+            f"storage range 0x{offset:X}..0x{offset + width:X} is outside ROM image "
+            f"(size 0x{len(data):X})"
+        )
+
 def storage_width(storage_type: str) -> int:
     try:
         return _WIDTH[storage_type]
@@ -15,6 +30,7 @@ def is_signed(storage_type: str) -> bool:
 
 def storage_bounds(storage_type: str) -> tuple[int, int]:
     w = storage_width(storage_type)
+    _require_integer_storage(storage_type)
     bits = w * 8
     if is_signed(storage_type):
         return (-(1 << (bits - 1)), (1 << (bits - 1)) - 1)
@@ -22,6 +38,8 @@ def storage_bounds(storage_type: str) -> tuple[int, int]:
 
 def read_int(data, offset: int, storage_type: str, little_endian: bool) -> int:
     w = storage_width(storage_type)
+    _require_integer_storage(storage_type)
+    _check_range(data, offset, w)
     chunk = bytes(data[offset:offset + w])
     v = int.from_bytes(chunk, "little" if little_endian else "big", signed=False)
     if is_signed(storage_type) and v >= (1 << (w * 8 - 1)):
@@ -30,6 +48,8 @@ def read_int(data, offset: int, storage_type: str, little_endian: bool) -> int:
 
 def write_int(data: bytearray, offset: int, value: int, storage_type: str, little_endian: bool) -> None:
     w = storage_width(storage_type)
+    _require_integer_storage(storage_type)
+    _check_range(data, offset, w)
     lo, hi = storage_bounds(storage_type)
     if not (lo <= value <= hi):
         raise TableError(f"value {value} out of range for {storage_type}")

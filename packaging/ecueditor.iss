@@ -1,21 +1,24 @@
 #ifndef AppVersion
-  #define AppVersion "0.1.0b1"
+  #define AppVersion "0.1.0b2"
+#endif
+#ifndef AppDisplayVersion
+  #define AppDisplayVersion "0.1.0 Beta 2"
 #endif
 #ifndef AppNumericVersion
-  #define AppNumericVersion "0.1.0.1"
+  #define AppNumericVersion "0.1.0.2"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\.tmp\release-build\dist\ecueditor"
 #endif
 #ifndef OutputDir
-  #define OutputDir "..\release\0.1.0b1"
+  #define OutputDir "..\release\0.1.0b2"
 #endif
 
 [Setup]
 AppId={{C07E0C75-50B4-4EC6-88EF-895305A52E89}
 AppName=BimmerStein Tuning Suite
 AppVersion={#AppVersion}
-AppVerName=BimmerStein Tuning Suite {#AppVersion} Beta
+AppVerName=BimmerStein Tuning Suite {#AppDisplayVersion}
 AppPublisher=CAATZ
 VersionInfoVersion={#AppNumericVersion}
 VersionInfoCompany=CAATZ

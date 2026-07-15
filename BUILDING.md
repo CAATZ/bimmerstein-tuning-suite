@@ -1,4 +1,4 @@
-# Building BimmerStein Tuning Suite 0.1.0 Beta 1
+# Building BimmerStein Tuning Suite
 
 The corresponding-source archive contains everything needed to rebuild the Windows application and
 installer. Use 64-bit Python 3.11 or newer on Windows.
@@ -22,7 +22,7 @@ versions used for that binary. Inno Setup 6 is also required to build the instal
 python scripts/build_release.py --iscc "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 ```
 
-The command creates `release\0.1.0b1\` with the unpacked application, portable ZIP, installer EXE,
+The command creates `release\<version>\` with the unpacked application, portable ZIP, installer EXE,
 corresponding-source ZIP, release notes, build-environment inventory, and SHA-256 checksums.
 
 For a portable and source build without the installer:

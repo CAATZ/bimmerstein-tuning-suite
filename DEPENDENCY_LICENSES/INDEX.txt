@@ -93,6 +93,14 @@ python-dateutil 2.9.0.post0
   Declared license: Dual License
   License file: python-dateutil-2.9.0.post0/python_dateutil-2.9.0.post0.dist-info/LICENSE
 
+scipy 1.18.0
+  Declared license: Copyright (c) 2001-2002 Enthought, Inc. 2003, SciPy Developers.
+  License file: scipy-1.18.0/scipy-1.18.0.dist-info/LICENSE.txt
+  License file: scipy-1.18.0/scipy/_lib/_uarray/LICENSE
+  License file: scipy-1.18.0/scipy/fft/_duccfft/LICENSE.md
+  License file: scipy-1.18.0/scipy/integrate/LICENSE_DOP
+  License file: scipy-1.18.0/scipy/spatial/qhull_src/COPYING_QHULL.txt
+
 shiboken6 6.11.1
   Declared license: LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
   License file: shiboken6-6.11.1/GPL-2.0-selected.txt

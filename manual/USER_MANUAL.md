@@ -2,14 +2,14 @@
 
 **ECU Calibration and Data Logging**
 
-Version 0.1.0 Beta 1
+Version 0.1.0 Beta 2
 Windows x64
 
 BimmerStein Tuning Suite is a desktop calibration editor and live-data logger. The current beta
 focuses on BMW MS41 while retaining an extensible definition and plugin architecture for other
 platforms.
 
-This manual describes the Beta 1 release. Screenshots use synthetic demonstration data and do not
+This manual describes the Beta 2 release. Screenshots use synthetic demonstration data and do not
 contain a production ROM or proprietary definition.
 
 <!-- pagebreak -->
@@ -35,12 +35,12 @@ working as designed.
 
 ### Beta scope
 
-Beta 1 is intended for testing and feedback. DS2 polling has been exercised on hardware, but more
+Beta 2 is intended for testing and feedback. DS2 polling has been exercised on hardware, but more
 ECU versions, interfaces, Windows systems, and display-scaling combinations still need validation.
 Check multi-byte logger channels carefully because a channel definition may need explicit byte
 order information.
 
-Not implemented in Beta 1: ECU flashing, Subaru SSM, generic OBD-II or ELM327, J2534, and Bluetooth
+Not implemented in Beta 2: ECU flashing, Subaru SSM, generic OBD-II or ELM327, J2534, and Bluetooth
 transports.
 
 <!-- pagebreak -->
@@ -49,11 +49,11 @@ transports.
 
 ### Windows installer
 
-1. Download the Beta 1 setup executable from the project release page.
+1. Download the Beta 2 setup executable from the project release page.
 2. Run the installer and choose the destination folder.
 3. Start **BimmerStein Tuning Suite** from the Start menu or desktop shortcut.
 
-The Beta 1 executable is not code-signed. Windows may show an unknown-publisher warning. Confirm
+The Beta 2 executable is not code-signed. Windows may show an unknown-publisher warning. Confirm
 that the filename and SHA-256 checksum match the release before continuing.
 
 ### Portable package
@@ -127,8 +127,8 @@ does not reset the positions of existing windows.
 - **Focus** maximizes the active internal window. Press **Esc** to restore the previous workspace.
 - **Window > Tile** and **Window > Cascade** arrange all open windows on demand.
 
-Window-size and density preferences affect table content, not the outer application window. On a
-constrained display the editor keeps the selected size tiers distinct while fitting them inside the
+Table density and base value font size affect table content, not the outer application window. Each
+internal editor window automatically fits its measured table and native window chrome inside the
 available workspace.
 
 <!-- pagebreak -->
@@ -172,7 +172,44 @@ table definition.
 - Use **Fine +**, **Fine -**, **Coarse +**, or **Coarse -** for definition-sized steps.
 - Enter a number beside **Set** and apply it to the selection.
 - Choose a math operation to add, subtract, multiply, divide, or apply a percentage.
-- Select **Interp**, horizontal interpolation, or vertical interpolation where appropriate.
+- Select **Interpolate** (Shift+I). A selected row uses horizontal linear interpolation, a selected
+  column uses vertical linear interpolation, and a rectangular selection uses bilinear
+  interpolation. The selection must be one contiguous line or rectangle.
+
+### Expand and resample in Map Studio
+
+Choose **Map Studio** (Ctrl+Shift+M) from a curve or map window for changes that need more review
+than the quick interpolation command. The table that opens Map Studio is already the destination;
+there is no second destination selection step.
+
+Map Studio works on a local snapshot until **Apply to _table name_** is chosen. It provides:
+
+- **Linear** and shape-preserving **PCHIP** interpolation for curves.
+- **Bilinear** and shape-preserving **PCHIP** interpolation for two-axis maps.
+- **Hold edge values** and **Do not extrapolate** boundary safeguards.
+- **Limited linear**, the single extrapolation method, capped by a configurable number of edge intervals.
+- Anomaly detection, selected-cell harmonic repair, whole-table smoothing with a mandatory preview, local undo/redo, difference views, slices, 3D review, and a safety summary.
+- The suite's selected heatmap palette (Classic Rainbow by default) and the same Normal/Compact
+  numeric sizing used by the main tables. Studio tables open at 100%; **Fit** is an explicit command
+  when the complete grid should be scaled into the current viewport. Amber outlines identify
+  extrapolated result cells; Changes uses a symmetric blue-to-red scale centered on zero.
+
+For a physically expanded table whose final rows or columns repeat a smaller calibration, use
+**Detect** or select the unique 2 × 2-or-larger source rectangle and choose **Use Region**. Then
+choose **Expand to _columns_ × _rows_**. Map Studio keeps the ROM table's existing physical dimensions,
+creates evenly spaced destination axes by default, and interpolates the selected source across all
+available cells. Switch to custom axes when specific breakpoints are required. Storage-backed axes
+must remain strictly monotonic after their real values are encoded; static axes cannot be expanded.
+
+Increasing a destination axis beyond the selected source range requires **Limited linear**. Adding
+more breakpoints within the original range is interpolation, not extrapolation.
+
+<!-- pagebreak -->
+
+Review the Result, Changes, visualizations, extrapolated-cell highlights, and safety summary before
+applying. Apply quantizes the axes and values first, then commits both atomically as one table undo
+operation. If the opening table changes while Map Studio is open, apply is disabled until the source
+is reloaded. Numerical tools cannot determine whether a calibration is safe for an engine.
 
 ### Visual edit indicators
 
@@ -200,6 +237,11 @@ or spreadsheets. Confirm dimensions, axis orientation, units, and rounding after
 
 Storage-backed axis headers are editable. Double-click a column or row header, enter the calibrated
 breakpoint, and press **Enter**.
+
+To keep dense maps readable, numeric headers show the coarsest rounded label that still
+distinguishes every different breakpoint. Hover a header to see its exact engineering value;
+double-clicking also opens that exact value for editing. Rounding is display-only and never changes
+the stored axis or its scaling.
 
 Some definitions expose the same breakpoint data as a separate axis table. If multiple open tables
 refer to the same shared physical axis bytes, an edit is synchronized across all of those views.
@@ -250,6 +292,7 @@ provide one.
 ### Undo
 
 - **Undo** or **Ctrl+Z** reverses the most recent edit in the active table.
+- **Redo** or **Ctrl+Y** reapplies the most recently undone table edit.
 - **Undo All** or **Ctrl+Shift+Z** restores the active table to its current revert baseline.
 
 ### Set Revert Point
@@ -266,6 +309,10 @@ Use the table **Compare** menu to show changes or compare the active table again
 table. **Compare > Compare Images** compares open ROM images. Use **Window > Compare Active With**
 to choose two open views for the side-by-side workspace.
 
+Comparison colors use a symmetric difference scale: neutral cells sit at the center, while stronger
+blue or red saturation indicates a larger negative or positive difference. The legend always shows
+matching negative and positive limits; Percent mode expresses those limits as percentages.
+
 ### Save safely
 
 1. Review all changed tables and shared axes.
@@ -275,6 +322,13 @@ to choose two open views for the side-by-side workspace.
 5. Reopen and independently verify the saved file before any separate flashing operation.
 
 **Save** writes to the current file path. The editor warns about unsaved ROM changes when closing.
+
+**Reload ROM from Disk** or **F5** rereads the selected ROM's current source file. Unsaved ROM
+edits require confirmation because reload discards them and clears table undo history. Open tables
+and 3D views remain connected to the reloaded ROM. A clean Map Studio adopts the new source; a Map
+Studio with local Source edits or a generated Result preserves that work, marks it stale when the
+opening table changed, and disables Apply until its source is reloaded. A file with a different
+size, ROM identity, or memory framing is rejected and must be opened separately.
 
 <!-- pagebreak -->
 
@@ -286,15 +340,13 @@ Open **Edit > Settings** to change:
 
 - Theme: Dark, Light, or System.
 - Heatmap: Rainbow or Viridis.
-- Editor window size: Small, Medium, or Large.
 - Table density: Normal or Compact.
-- Numeric value font size.
-- Preferred cell width and height.
+- Base numeric value font size.
 
-The editor calculates natural column widths from the actual formatted values and axis labels, then
-fits the internal window to its content within the selected size limit. Small tables should remain
-compact instead of inheriting unused space from large maps. Very large tables use scrollbars when
-the complete natural size cannot fit on the current display.
+The editor calculates natural column widths from the actual formatted values and styled axis labels,
+then fits the internal window to that content. Small tables remain compact instead of inheriting
+unused space from large maps. Very large tables use scrollbars when the complete natural size cannot
+fit in the current workspace.
 
 If text is cropped, first try Normal density or a smaller value font. Also confirm the Windows
 display-scaling percentage and restart the application after a major monitor or scaling change.
@@ -382,7 +434,7 @@ the ECU definition itself.
 | Application | Ctrl+S | Save |
 | Application | Ctrl+Shift+S | Save As |
 | Application | Ctrl+W | Close ROM |
-| Application | F5 | Refresh active ROM |
+| Application | F5 | Reload selected ROM from disk |
 | Application | Ctrl+L | Launch Logger |
 | Application | Ctrl+K | Go to Table |
 | Workspace | Ctrl+Alt+1 | Studio mode |
@@ -392,13 +444,13 @@ the ECU definition itself.
 | Workspace | Ctrl+Tab | Next internal window |
 | Workspace | Ctrl+Shift+Tab | Previous internal window |
 | Table | Ctrl+Z | Undo last table edit |
+| Table | Ctrl+Y | Redo last table edit |
 | Table | Ctrl+Shift+Z | Undo all to revert point |
 | Table | Ctrl+C | Copy selection |
 | Table | Ctrl+Shift+C | Copy table |
 | Table | Ctrl+V | Paste |
 | Table | Shift+I | Interpolate selection |
-| Table | Shift+H | Horizontal interpolation |
-| Table | Shift+V | Vertical interpolation |
+| Table | Ctrl+Shift+M | Open Map Studio |
 | Table | + / _ | Coarse increment / decrement |
 | Table | * | Multiply selection |
 | Logger | F1 | Start or stop file logging |
@@ -428,7 +480,7 @@ Shortcuts for table editing apply when the active grid or one of its child contr
 
 ### A table does not fit or text is cropped
 
-- Try Compact density, a smaller value font, or the Small window tier.
+- Try Compact density or a smaller base value font.
 - For clipped labels, try Normal density so row height follows the font.
 - Check Windows display scaling and available workspace size.
 - Use Focus mode for very large tables.
@@ -470,7 +522,7 @@ files.
 
 - Project: [github.com/CAATZ/bimmerstein-tuning-suite](https://github.com/CAATZ/bimmerstein-tuning-suite)
 - Issues: [Report a bug or request a feature](https://github.com/CAATZ/bimmerstein-tuning-suite/issues)
-- Release notes: [Beta 1 release notes](../RELEASE_NOTES.md)
+- Release notes: [Beta 2 release notes](../RELEASE_NOTES.md)
 - Licensing: [GNU GPL and third-party notices](../THIRD_PARTY_NOTICES.md)
 
 Useful bug reports include the ECU or ROM version, Windows version, display-scaling percentage,

@@ -1,12 +1,14 @@
 from __future__ import annotations
 import re
 from pathlib import Path
+from typing import cast
 from PySide6.QtWidgets import (QHeaderView, QWidget, QVBoxLayout, QLineEdit, QTreeWidget,
                                QTreeWidgetItem)
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from ecueditor.ui.design.icons import icon
 from ecueditor.ui.design.theme_manager import current_theme
+from ecueditor.core.rom.image import RomImage
 
 _ROM_ROLE = Qt.ItemDataRole.UserRole
 _NAME_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -22,6 +24,7 @@ def icon_name_for_table(tdef) -> str:
 
 class RomTreePanel(QWidget):
     table_activated = Signal(object, object)     # emits (rom, table) -- H9
+    rom_selected = Signal(object)         # emits the ROM represented by any clicked tree item
     rom_opened = Signal(object)          # emits a core RomImage
     files_dropped = Signal(list)         # emits list[Path]
 
@@ -29,7 +32,7 @@ class RomTreePanel(QWidget):
         super().__init__(parent)
         self.setObjectName("romTreePanel")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self._roms: list[object] = []
+        self._roms: list[RomImage] = []
         self._filter = ""
         self._dirty: set[tuple[int, str]] = set()
         self._failed: set[int] = set()
@@ -47,13 +50,13 @@ class RomTreePanel(QWidget):
         self.setAcceptDrops(True)
 
     # --- population ----------------------------------------------------------
-    def add_rom(self, rom: object) -> None:
+    def add_rom(self, rom: RomImage) -> None:
         self._roms.append(rom)
         self.refresh_rom_status(rom)
         self.rom_opened.emit(rom)
         self._rebuild()
 
-    def remove_rom(self, rom: object) -> None:
+    def remove_rom(self, rom: RomImage) -> None:
         if rom in self._roms:
             self._roms.remove(rom)
             self._rebuild()
@@ -69,15 +72,15 @@ class RomTreePanel(QWidget):
     def rom_count(self) -> int:
         return len(self._roms)
 
-    def roms(self) -> list:
+    def roms(self) -> list[RomImage]:
         return list(self._roms)
 
-    def _rom_label(self, rom: object) -> str:
+    def _rom_label(self, rom: RomImage) -> str:
         path = getattr(rom, "path", None)
         return Path(path).name if path else rom.definition.romid.xmlid
 
     # --- status (checksum ✗ / dirty ●) ----------------------------------------
-    def refresh_rom_status(self, rom: object) -> None:
+    def refresh_rom_status(self, rom: RomImage) -> None:
         """Re-read checksum_report() so the danger ✗ badge reflects the ROM's current bytes."""
         report = rom.checksum_report() if hasattr(rom, "checksum_report") else None
         if report is not None and not report.ok:
@@ -88,7 +91,7 @@ class RomTreePanel(QWidget):
     def set_user_level_filter(self, level: int) -> None:
         self._user_level = int(level); self._rebuild()
 
-    def set_dirty(self, rom: object, name: str, dirty: bool) -> None:
+    def set_dirty(self, rom: RomImage, name: str, dirty: bool) -> None:
         key = (id(rom), name)
         (self._dirty.add if dirty else self._dirty.discard)(key)
         item = self._leaf_items.get(key)
@@ -96,13 +99,24 @@ class RomTreePanel(QWidget):
             item.setText(0, f"{name} ●" if dirty else name)
         self._refresh_rom_label(rom)
 
-    def _refresh_rom_label(self, rom: object) -> None:
+    def clear_dirty(self, rom: RomImage) -> None:
+        """Clear every table/ROM dirty decoration after a full disk reload."""
+        rid = id(rom)
+        self._dirty = {key for key in self._dirty if key[0] != rid}
+        for (owner_id, name), item in self._leaf_items.items():
+            if owner_id == rid:
+                item.setText(0, name)
+        self._refresh_rom_label(rom)
+
+    def _refresh_rom_label(self, rom: RomImage) -> None:
         for i in range(self.tree.topLevelItemCount()):
             root = self.tree.topLevelItem(i)
+            if root is None:
+                continue
             if root.data(0, _ROM_ROLE) is rom:
                 root.setText(0, self._decorated_rom_label(rom))
 
-    def _decorated_rom_label(self, rom: object) -> str:
+    def _decorated_rom_label(self, rom: RomImage) -> str:
         label = self._rom_label(rom)
         if id(rom) in self._failed:
             label += "  ✗"
@@ -115,9 +129,13 @@ class RomTreePanel(QWidget):
         # status refreshes must not collapse categories the user opened).
         for i in range(self.tree.topLevelItemCount()):
             root = self.tree.topLevelItem(i)
-            rom = root.data(0, _ROM_ROLE)
+            if root is None:
+                continue
+            rom = cast(RomImage, root.data(0, _ROM_ROLE))
             for c in range(root.childCount()):
                 cat = root.child(c)
+                if cat is None:
+                    continue
                 self._expanded[(id(rom), cat.text(0))] = cat.isExpanded()
         self.tree.clear()
         self._leaf_items = {}
@@ -141,12 +159,14 @@ class RomTreePanel(QWidget):
                     continue
                 if getattr(tdef, "user_level", 1) > self._user_level:
                     continue
-                cat = tdef.category or "Uncategorized"
-                node = cats.get(cat)
+                category_name = tdef.category or "Uncategorized"
+                node = cats.get(category_name)
                 if node is None:
-                    node = QTreeWidgetItem([cat]); root.addChild(node)
-                    node.setExpanded(self._expanded.get((id(rom), cat), False))
-                    cats[cat] = node
+                    node = QTreeWidgetItem([category_name]); root.addChild(node)
+                    node.setExpanded(
+                        self._expanded.get((id(rom), category_name), False)
+                    )
+                    cats[category_name] = node
                 dirty = (id(rom), name) in self._dirty
                 leaf = QTreeWidgetItem([f"{name} ●" if dirty else name])
                 leaf.setData(0, _ROM_ROLE, rom); leaf.setData(0, _NAME_ROLE, name)
@@ -167,10 +187,12 @@ class RomTreePanel(QWidget):
     def _on_item_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
         name = item.data(0, _NAME_ROLE)
         rom = item.data(0, _ROM_ROLE)
+        if rom is not None:
+            self.rom_selected.emit(rom)
         if name and rom is not None:
             self.activate_table(rom, name)
 
-    def activate_table(self, rom: object, name: str) -> None:
+    def activate_table(self, rom: RomImage, name: str) -> None:
         self.table_activated.emit(rom, rom.table(name))
 
     # --- introspection (test hooks) -----------------------------------------
@@ -181,7 +203,12 @@ class RomTreePanel(QWidget):
         out: list[str] = []
         for i in range(self.tree.topLevelItemCount()):
             root = self.tree.topLevelItem(i)
-            out += [root.child(c).text(0) for c in range(root.childCount())]
+            if root is None:
+                continue
+            for c in range(root.childCount()):
+                child = root.child(c)
+                if child is not None:
+                    out.append(child.text(0))
         return out
 
     # --- drag & drop (fact base 1.2: drop .bin files onto the editor) --------

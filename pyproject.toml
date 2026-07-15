@@ -20,13 +20,13 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
 ]
-dependencies = ["numpy>=1.26"]
+dependencies = ["numpy>=1.26", "scipy>=1.13"]
 
 [project.optional-dependencies]
 gui = ["PySide6>=6.6", "pyqtgraph>=0.13", "matplotlib>=3.8", "numpy>=1.26"]
 comms = ["pyserial>=3.5"]
 d2xx = ["ftd2xx>=1.3"]
-dev = ["pytest>=8", "pytest-qt>=4", "mypy>=1.8", "ruff>=0.4"]
+dev = ["pytest>=8", "pytest-qt>=4", "mypy>=1.8", "ruff>=0.4", "setuptools>=77.0.3"]
 
 [project.scripts]
 ecueditor-cli = "ecueditor.core.cli:main"
@@ -37,6 +37,21 @@ namespaces = false
 
 [tool.setuptools.dynamic]
 version = {attr = "ecueditor.__version__"}
+
+[tool.setuptools.data-files]
+"share/bimmerstein-tuning-suite/resources/icons" = [
+    "resources/icons/*.svg",
+    "resources/icons/*.ico",
+    "resources/icons/*.txt",
+]
+"share/bimmerstein-tuning-suite/resources/fonts" = [
+    "resources/fonts/*.ttf",
+    "resources/fonts/*.txt",
+]
+"share/bimmerstein-tuning-suite/manual" = [
+    "output/pdf/BimmerStein-Tuning-Suite-User-Manual.pdf",
+]
+"share/bimmerstein-tuning-suite/plugins" = ["plugins/*.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -61,27 +76,10 @@ ignore = ["E701", "E702"]
 
 [tool.mypy]
 python_version = "3.11"
-packages = ["ecueditor.core", "ecueditor.ui.design", "ecueditor.ui.workspace", "ecueditor.ui.editor.frames", "ecueditor.ui.logger.gauges"]
-modules = ["ecueditor.ui.dialogs.definition_manager"]
+packages = ["ecueditor"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "numpy.*"
 follow_imports = "skip"
 follow_imports_for_stubs = true
-
-[[tool.mypy.overrides]]
-# frames/ imports these untyped ui/editor siblings (TableGridModel, TableGridWidget,
-# TableMenuBar, edit_ops, clipboard, table_chooser) purely as consumers; they stay out
-# of the widened gate's scope (Task 16), so silence -- don't fully re-check -- them
-# when mypy follows the import instead of reporting their pre-existing PySide6-stub
-# and Liskov nits against the frames/ gate.
-module = [
-    "ecueditor.ui.editor.table_model",
-    "ecueditor.ui.editor.table_grid",
-    "ecueditor.ui.editor.table_menubar",
-    "ecueditor.ui.editor.edit_ops",
-    "ecueditor.ui.editor.clipboard",
-    "ecueditor.ui.editor.table_chooser",
-]
-follow_imports = "silent"

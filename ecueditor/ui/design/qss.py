@@ -99,11 +99,12 @@ QPushButton:pressed {{ background: {t.accent_pressed}; color: #ffffff; }}
 QPushButton:disabled {{ color: {t.text_disabled}; background: {t.surface2};
                         border-color: {t.border}; }}
 QPushButton:focus {{ border: 1px solid {t.focus_ring}; }}
-QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {{
+QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QPlainTextEdit, QTextEdit {{
     background: {t.surface3}; color: {t.text}; border: 1px solid {t.border_strong};
     border-radius: {t.radius[0]}px; padding: 2px {t.space[0]}px;
     selection-background-color: {rgba(t.accent, 0.35)}; }}
-QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus,
+QPlainTextEdit:focus, QTextEdit:focus {{
     border: 1px solid {t.focus_ring}; }}
 QLineEdit[invalid="true"] {{ border: 1px solid {t.danger}; background: {rgba(t.danger, 0.10)}; }}
 QComboBox QAbstractItemView {{ background: {t.surface3}; color: {t.text};
@@ -169,13 +170,52 @@ QWidget#surfaceControls QToolButton:hover {{ border-color: {t.accent}; }}
 QWidget#surfaceControls QToolButton:checked {{ color: {t.accent}; border-color: {t.accent};
     background: {rgba(t.accent, 0.12)}; }}
 QWidget#surfaceControls QCheckBox {{ color: {t.text_dim}; }}
-QSlider#surfaceHeight::groove:horizontal {{ height: 4px; background: {t.border_strong};
-    border-radius: 2px; }}
-QSlider#surfaceHeight::sub-page:horizontal {{ background: {t.accent}; border-radius: 2px; }}
-QSlider#surfaceHeight::handle:horizontal {{ width: 14px; height: 14px; margin: -5px 0;
-    border-radius: 7px; background: {t.text}; border: 2px solid {t.accent}; }}
-QLabel#surfaceHeightValue {{ color: {t.text}; min-width: 28px; }}
 QLabel#surfaceValue {{ color: {t.text}; font-weight: 600; }}
+
+/* ==== Map Studio workbench ==== */
+QWidget#mapStudioDocument {{ background: {t.bg}; color: {t.text}; }}
+QWidget#mapStudioHeader {{ background: {t.surface1}; border-bottom: 1px solid {t.border}; }}
+QWidget#mapStudioHeader QLabel#frameTitle {{ background: transparent; color: {t.text}; }}
+QLabel#mapStudioSubtitle, QLabel#mapStudioPanelSubtitle, QLabel#mapStudioHelp,
+QLabel#mapStudioFieldHeading, QLabel#mapStudioStatus {{ color: {t.text_dim}; }}
+QLabel#mapStudioPanelTitle {{ color: {t.text}; font-weight: 600; }}
+QWidget#mapStudioWorkspace {{ background: {t.bg}; }}
+QWidget#mapStudioPanelHeader {{ background: {t.bg}; }}
+QWidget#mapStudioEditBar {{ background: {t.surface1}; border: 1px solid {t.border};
+    border-radius: {t.radius[1]}px; }}
+QWidget#mapStudioEditBar QToolButton {{ color: {t.text}; background: {t.surface2};
+    border: 1px solid {t.border_strong}; border-radius: {t.radius[0]}px;
+    padding: 3px 7px; }}
+QWidget#mapStudioEditBar QToolButton:hover {{ border-color: {t.accent};
+    background: {rgba(t.accent, 0.12)}; }}
+QWidget#mapStudioEditBar QToolButton:disabled {{ color: {t.text_disabled};
+    background: {t.surface1}; border-color: {t.border}; }}
+QLabel#mapStudioEditHint {{ color: {t.text_dim}; background: transparent; }}
+QScrollArea#mapStudioInspectorScroll {{ background: {t.surface1};
+    border: none; border-left: 1px solid {t.border}; }}
+QScrollArea#mapStudioInspectorScroll > QWidget > QWidget,
+QWidget#mapStudioInspector {{ background: {t.surface1}; }}
+QWidget#mapStudioInspector QGroupBox {{ background: {t.surface2};
+    border-color: {t.border_strong}; border-radius: {t.radius[2]}px; }}
+QWidget#mapStudioInspector QGroupBox::title {{ background: {t.surface2};
+    color: {t.text}; font-weight: 600; }}
+QWidget#mapStudioTableFooter {{ background: {t.surface1}; border-top: 1px solid {t.border}; }}
+QWidget#mapStudioLegend {{ background: {t.surface1}; }}
+QLabel#mapStudioPaletteLabel {{ color: {t.text_dim}; background: {t.surface3};
+    border-radius: {t.radius[3]}px; padding: 1px {t.space[1]}px; font-weight: 600; }}
+QWidget#mapStudioZoomControls QToolButton {{ min-width: 24px; padding: 2px 5px;
+    background: {t.surface3}; border: 1px solid {t.border_strong}; }}
+QWidget#mapStudioZoomControls QToolButton:hover {{ border-color: {t.accent};
+    background: {rgba(t.accent, 0.14)}; }}
+QWidget#mapStudioFooter {{ background: {t.surface2}; border-top: 1px solid {t.border}; }}
+QPushButton[buttonRole="primary"] {{ background: {t.accent}; color: #ffffff;
+    border-color: {t.accent}; font-weight: 600; }}
+QPushButton[buttonRole="primary"]:hover {{ background: {t.accent_hover};
+    border-color: {t.accent_hover}; }}
+QPushButton[buttonRole="primary"]:pressed {{ background: {t.accent_pressed};
+    border-color: {t.accent_pressed}; }}
+QPushButton[buttonRole="primary"]:disabled {{ background: {t.surface2};
+    color: {t.text_disabled}; border-color: {t.border}; }}
 """
     if icons_dir is not None:
         qss += f"""

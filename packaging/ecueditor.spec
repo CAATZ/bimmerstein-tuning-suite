@@ -22,8 +22,10 @@ for pkg in (
     "ecueditor.core.external",                   # external data source base
 ):
     hiddenimports += collect_submodules(pkg)
-hiddenimports += ["pyqtgraph", "matplotlib.backends.backend_qtagg", "numpy", "serial",
-                  "PySide6.QtSvg"]   # runtime deps not always auto-found
+hiddenimports += [
+    "pyqtgraph", "matplotlib.backends.backend_qtagg", "numpy", "serial",
+    "scipy.interpolate", "scipy.sparse.linalg", "PySide6.QtSvg",
+]   # runtime deps not always auto-found
 
 # Bundle UI resources. Post-8a the real payload is resources/icons/*.svg (Lucide subset, Task 7)
 # and resources/fonts/*.ttf (bundled JetBrains Mono, Task 6), pulled in wholesale by the explicit
@@ -58,6 +60,18 @@ if _dependency_licenses_raw:
         for p in _dependency_licenses.rglob("*") if p.is_file()
     ]
 
+_version_file_raw = os.environ.get("ECUEDITOR_VERSION_FILE", "")
+_version_file = Path(_version_file_raw) if _version_file_raw else None
+if _version_file is not None and not _version_file.is_file():
+    raise SystemExit(f"Windows version-info file does not exist: {_version_file}")
+if _version_file is not None:
+    _version_info = str(_version_file)
+else:
+    from ecueditor import __version__ as _app_version
+    from scripts.build_release import _windows_version_info
+
+    _version_info = _windows_version_info(_app_version)
+
 # User-droppable plugins/ ship alongside the EXE; frozen startup resolves this directory from
 # sys.executable, so shortcuts and other launchers work regardless of their working directory.
 # NOTE (see Task 3): the six cookbook DEMO plugins (demoxor/demoproto/demotransport/demoxdf/demoafr/
@@ -90,5 +104,6 @@ pyz = PYZ(a.pure)                              # PyInstaller >= 6: no cipher/zip
 # remains next to the launcher EXE, where the frozen executable-relative resolver finds it.
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="BimmerStein-Tuning-Suite",
           console=False, debug=False, icon=str(ROOT / "resources" / "icons" / "app.ico"),
+          version=_version_info,
           contents_directory=".")
 coll = COLLECT(exe, a.binaries, a.zipfiles, a.datas, name="BimmerStein-Tuning-Suite")

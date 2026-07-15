@@ -193,7 +193,8 @@ def resolve_tables(by_xid: dict[str, list[ET.Element]], xid: str) -> tuple[dict[
                 continue
             e = eff.setdefault(nm, {"name": nm, "axes": {}, "states": [], "bits": []})
             for k in ("storageaddress", "sizex", "sizey", "storagetype", "endian", "type",
-                      "category", "userlevel", "locked", "logparam"):
+                      "category", "userlevel", "locked", "logparam",
+                      "swapxy", "flipx", "flipy"):
                 v = tbl.get(k)
                 if v is not None:
                     e[k] = v
@@ -256,6 +257,9 @@ def _build_table(e: dict) -> TableDef:
         logparam=e.get("logparam"),
         user_level=int(userlevel) if userlevel is not None else 1,
         locked=(locked == "true") if locked is not None else False,
+        swap_xy=str(e.get("swapxy", "false")).lower() == "true",
+        flip_x=str(e.get("flipx", "false")).lower() == "true",
+        flip_y=str(e.get("flipy", "false")).lower() == "true",
     )
 
 

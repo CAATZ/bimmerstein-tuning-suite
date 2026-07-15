@@ -23,13 +23,6 @@ class SettingsDialog(QDialog):
         self.combo_colormap.addItem("Classic Rainbow", "rainbow")
         ix = self.combo_colormap.findData(settings.colormap)
         self.combo_colormap.setCurrentIndex(max(0, ix))
-        self.combo_editor_window_size = QComboBox()
-        for label, value in (("Small", "small"), ("Medium", "medium"), ("Large", "large")):
-            self.combo_editor_window_size.addItem(label, value)
-        ix = self.combo_editor_window_size.findData(settings.editor_window_size)
-        if ix < 0:
-            ix = self.combo_editor_window_size.findData("medium")
-        self.combo_editor_window_size.setCurrentIndex(ix)
         self.combo_table_density = QComboBox()
         for label, value in (("Normal", "normal"), ("Compact", "compact")):
             self.combo_table_density.addItem(label, value)
@@ -39,31 +32,29 @@ class SettingsDialog(QDialog):
         self.combo_table_density.setCurrentIndex(ix)
         self.spin_font_size = QSpinBox(); self.spin_font_size.setRange(7, 24)
         self.spin_font_size.setValue(settings.font_size)
-        self.spin_cell_width = QSpinBox(); self.spin_cell_width.setRange(8, 300)
-        self.spin_cell_width.setValue(settings.cell_width)
-        self.spin_cell_height = QSpinBox(); self.spin_cell_height.setRange(8, 300)
-        self.spin_cell_height.setValue(settings.cell_height)
+        self.combo_table_density.setToolTip(
+            "Normal or compact table spacing; editor windows fit the resulting table automatically."
+        )
+        self.spin_font_size.setToolTip(
+            "Base numeric font size. Compact density uses a smaller presentation font."
+        )
         form.addRow("Theme", self.combo_theme)
         form.addRow("Heatmap", self.combo_colormap)
-        form.addRow("Editor Window Size", self.combo_editor_window_size)
         form.addRow("Table Density", self.combo_table_density)
-        form.addRow("Value Font Size", self.spin_font_size)
-        form.addRow("Cell Width", self.spin_cell_width)
-        form.addRow("Cell Height", self.spin_cell_height)
+        form.addRow("Base Value Font Size", self.spin_font_size)
         tabs.addTab(appearance, "Appearance")
 
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
         bb.accepted.connect(self.accept); bb.rejected.connect(self.reject); lay.addWidget(bb)
 
     def to_settings(self) -> EditorSettings:
         return replace(self._settings,
                        theme=self.combo_theme.currentText().lower(),
                        colormap=self.combo_colormap.currentData(),
-                       editor_window_size=self.combo_editor_window_size.currentData(),
                        table_density=self.combo_table_density.currentData(),
-                       font_size=self.spin_font_size.value(),
-                       cell_width=self.spin_cell_width.value(),
-                       cell_height=self.spin_cell_height.value())
+                       font_size=self.spin_font_size.value())
 
     def accept(self) -> None:
         out = self.to_settings()

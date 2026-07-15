@@ -4,6 +4,7 @@ from PySide6.QtWidgets import QApplication
 from ecueditor.ui.design.tokens import theme_by_name, DARK
 from ecueditor.ui.design.qss import render_qss
 from ecueditor.ui.design.fonts import register_fonts
+from ecueditor.runtime_paths import icons_dir
 
 _NATIVE_PALETTE_ATTR = "_ecueditor_native_palette"
 _NATIVE_FONT_ATTR = "_ecueditor_native_font"
@@ -73,8 +74,7 @@ def apply_theme(app: QApplication, theme: str) -> None:
     """
     t = theme_by_name(theme)
     register_fonts()
-    from pathlib import Path
-    icons_dir = (Path(__file__).resolve().parents[2] / "resources" / "icons").as_posix()
+    icon_path = icons_dir().as_posix()
     native_palette = _native_palette(app)
     native_font = _native_font(app)
     if t is None:
@@ -84,7 +84,7 @@ def apply_theme(app: QApplication, theme: str) -> None:
     else:
         app.setPalette(_theme_palette(app, t))
         app.setFont(_grayscale_antialiased_font(native_font))
-        app.setStyleSheet(render_qss(t, icons_dir))
+        app.setStyleSheet(render_qss(t, icon_path))
     pg_theme = t or DARK
     try:                                    # pyqtgraph is a gui-extra dep; config is global
         import pyqtgraph as pg

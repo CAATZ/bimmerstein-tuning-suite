@@ -1,10 +1,11 @@
 from __future__ import annotations
+
 import logging
 import threading
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Callable, Mapping, Sequence
 
 from PySide6.QtCore import QObject, QThread, QTimer, Signal, Slot
 
@@ -12,7 +13,8 @@ _log = logging.getLogger(__name__)
 
 
 class _EngineWorker(QObject):
-    """Runs the blocking engine.run(stop) loop on a QThread."""
+    """Run the blocking engine loop on a dedicated QThread."""
+
     finished = Signal()
     failed = Signal(str)
 
@@ -25,26 +27,27 @@ class _EngineWorker(QObject):
     def run(self) -> None:
         try:
             self._engine.run(self._stop)
-        except Exception as exc:          # noqa: BLE001 — surfaced to the UI, never crashes the thread
-            self.failed.emit(str(exc))
+        except (Exception, SystemExit) as exc:  # surfaced to the UI; keep KeyboardInterrupt
+            self.failed.emit(str(exc) or type(exc).__name__)
         finally:
             self.finished.emit()
 
 
 @dataclass(frozen=True)
 class LoggerStats:
-    """Periodic query stats the controller assembles from poll outcomes (INTERFACES.md ui/logger)."""
     polls: int
     errors: int
     rate_hz: float
 
 
 class LoggerController(QObject):
-    sampleReady = Signal(object)          # Sample; queued cross-thread to the UI
-    started = Signal(str)                  # ECU-ID
+    """Own one initialized logger engine, its worker thread, and its connection lifetime."""
+
+    sampleReady = Signal(object)
+    started = Signal(str)
     stopped = Signal()
-    statsUpdated = Signal(object)          # LoggerStats: polls, errors, rate_hz (assembled on a timer)
-    modeUpdated = Signal(str)              # Fast batch / Compatible / fallback state
+    statsUpdated = Signal(object)
+    modeUpdated = Signal(str)
     errorOccurred = Signal(str)
 
     _RATE_WINDOW_S = 3.0
@@ -55,12 +58,14 @@ class LoggerController(QObject):
         self._thread: QThread | None = None
         self._worker: _EngineWorker | None = None
         self._stop = threading.Event()
-        self._unsubscribe = None
+        self._unsubscribe: Callable[[], None] | None = None
         self._poll_count = 0
         self._error_count = 0
         self._poll_times: deque[float] = deque(maxlen=4096)
         self._last_mode_status = ""
-        self._stats_timer = QTimer(self)       # lives on the main thread with the controller
+        self._engine_closed = False
+        self._cleanup_done = False
+        self._stats_timer = QTimer(self)
         self._stats_timer.setInterval(500)
         self._stats_timer.timeout.connect(self._emit_stats)
 
@@ -70,71 +75,93 @@ class LoggerController(QObject):
 
     @property
     def cal_id(self) -> str:
-        # Pass through LoggerEngine.cal_id for the window's CAL chip. Engines without a
-        # verified CAL ID return an empty string, which the window renders as unknown.
         return getattr(self._engine, "cal_id", "")
 
-    def start(self, channel_ids: Sequence[str], *, poll_mode: str = "auto") -> None:
+    def start(
+        self,
+        channel_ids: Sequence[str],
+        *,
+        poll_mode: str = "auto",
+        units: Mapping[str, str | None] | None = None,
+    ) -> None:
         if self.is_running:
             return
-        set_mode = getattr(self._engine, "set_poll_mode", None)
-        if set_mode is not None:
-            set_mode(poll_mode)
-        self._engine.select(list(channel_ids))
-        self._unsubscribe = self._engine.subscribe(self._on_sample)
+        if self._engine_closed:
+            raise RuntimeError("logger controller cannot restart a closed connection")
+        try:
+            set_mode = getattr(self._engine, "set_poll_mode", None)
+            if set_mode is not None:
+                set_mode(poll_mode)
+            self._select(channel_ids, units)
+            self._unsubscribe = self._engine.subscribe(self._on_sample)
+        except Exception:
+            self._close_engine()
+            raise
+
         self._stop = threading.Event()
         self._poll_count = 0
         self._error_count = 0
         self._poll_times = deque(maxlen=4096)
+        self._cleanup_done = False
 
-        self._thread = QThread()
-        self._worker = _EngineWorker(self._engine, self._stop)
-        self._worker.moveToThread(self._thread)
-        self._thread.started.connect(self._worker.run)
-        self._worker.finished.connect(self._thread.quit)
-        self._worker.failed.connect(self._on_worker_failed)
-        self._thread.finished.connect(self._cleanup)
-        self._thread.start()
+        thread = QThread()
+        worker = _EngineWorker(self._engine, self._stop)
+        self._thread = thread
+        self._worker = worker
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(thread.quit)
+        worker.failed.connect(self._on_worker_failed)
+        thread.finished.connect(lambda thread=thread: self._cleanup(thread))
+        thread.start()
         self._stats_timer.start()
-        # ECU-ID comes off the engine once the connection has init'd (LoggerEngine.ecu_id, a
-        # contract property mirroring ConnectionManager.ecu_id). Emit after the thread is live.
         self.started.emit(self._engine.ecu_id or "")
         self._emit_mode_status()
 
-    def update_selection(self, channel_ids: Sequence[str], *, poll_mode: str = "auto") -> None:
-        """Atomically replace the engine poll set; LoggerEngine applies it on the next cycle."""
+    def update_selection(
+        self,
+        channel_ids: Sequence[str],
+        *,
+        poll_mode: str = "auto",
+        units: Mapping[str, str | None] | None = None,
+    ) -> None:
         set_mode = getattr(self._engine, "set_poll_mode", None)
         if set_mode is not None:
             set_mode(poll_mode)
-        self._engine.select(list(channel_ids))
+        self._select(channel_ids, units)
         self._emit_mode_status()
 
+    def _select(
+        self, channel_ids: Sequence[str], units: Mapping[str, str | None] | None,
+    ) -> None:
+        select_with_units = getattr(self._engine, "select_with_units", None)
+        if units and callable(select_with_units):
+            select_with_units(list(channel_ids), units)
+        else:
+            self._engine.select(list(channel_ids))
+
     def _on_sample(self, sample) -> None:
-        # Runs on the WORKER thread. Emitting a Qt signal is thread-safe and is delivered
-        # to the receiver's thread via a queued connection — the only legal UI crossing.
-        self._poll_count += 1        # monotonic display counter; read by the stats timer
-        self._poll_times.append(time.monotonic())    # GIL-tolerant append; read by the stats timer
+        self._poll_count += 1
+        self._poll_times.append(time.monotonic())
         self.sampleReady.emit(sample)
 
     @Slot(str)
-    def _on_worker_failed(self, msg: str) -> None:
+    def _on_worker_failed(self, message: str) -> None:
         self._error_count += 1
-        self.errorOccurred.emit(msg)
+        self.errorOccurred.emit(message)
 
     def _emit_stats(self) -> None:
         now = time.monotonic()
         cutoff = now - self._RATE_WINDOW_S
-        # Snapshot via list() FIRST: iterating self._poll_times directly races the worker
-        # thread's append() ("deque mutated during iteration"); list(deque) is atomic under
-        # the GIL (no Python bytecode runs mid-copy), the comprehension over the snapshot is safe.
-        recent = [t for t in list(self._poll_times) if t >= cutoff]
+        recent = [timestamp for timestamp in list(self._poll_times) if timestamp >= cutoff]
         if len(recent) >= 2:
             span = max(now - min(recent), 1e-9)
             rate = len(recent) / span
         else:
             rate = 0.0
-        self.statsUpdated.emit(LoggerStats(polls=self._poll_count,
-                                            errors=self._error_count, rate_hz=rate))
+        self.statsUpdated.emit(LoggerStats(
+            polls=self._poll_count, errors=self._error_count, rate_hz=rate,
+        ))
         self._emit_mode_status()
 
     def _emit_mode_status(self) -> None:
@@ -149,20 +176,49 @@ class LoggerController(QObject):
 
     def stop(self) -> None:
         self._stats_timer.stop()
+        self._unsubscribe_now()
+        self._stop.set()
+        thread = self._thread
+        if thread is not None:
+            thread.quit()
+            if not thread.wait(5000):
+                _log.warning("logger thread still running after 5s; closing transport to interrupt I/O")
+                self._close_engine()
+                if not thread.wait(2000):
+                    _log.warning("logger thread still running after transport close; waiting unbounded")
+                    thread.wait()
+        self._cleanup(thread)
+
+    def _unsubscribe_now(self) -> None:
         if self._unsubscribe is not None:
             try:
                 self._unsubscribe()
             finally:
                 self._unsubscribe = None
-        self._stop.set()
-        if self._thread is not None:
-            self._thread.quit()
-            if not self._thread.wait(5000):
-                _log.warning("logger thread still running after 5s; waiting unbounded")
-                self._thread.wait()
+
+    def _close_engine(self) -> None:
+        if self._engine_closed:
+            return
+        self._engine_closed = True
+        close = getattr(self._engine, "close", None)
+        if callable(close):
+            try:
+                close()
+            except (Exception, SystemExit) as exc:  # teardown must finish
+                _log.warning("logger connection close failed: %s", exc, exc_info=exc)
 
     @Slot()
-    def _cleanup(self) -> None:
-        self._thread = None
-        self._worker = None
+    def _cleanup(self, thread: QThread | None = None) -> None:
+        if thread is not None and self._thread is not None and thread is not self._thread:
+            return
+        if self._cleanup_done:
+            return
+        self._cleanup_done = True
+        self._stats_timer.stop()
+        self._unsubscribe_now()
+        self._stop.set()
+        self._close_engine()
+        if thread is None or thread is self._thread:
+            self._thread = None
+            self._worker = None
         self.stopped.emit()

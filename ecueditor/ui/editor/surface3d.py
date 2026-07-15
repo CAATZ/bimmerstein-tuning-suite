@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
-from PySide6.QtCore import QTimer, Qt
-from PySide6.QtWidgets import (QHBoxLayout, QLabel, QSizePolicy, QSlider, QToolButton,
+from PySide6.QtCore import QObject, QTimer, Qt
+from PySide6.QtWidgets import (QHBoxLayout, QLabel, QSizePolicy, QToolButton,
                                QVBoxLayout, QWidget)
 
 from ecueditor.ui.design.colormaps import COLORMAPS
@@ -13,10 +14,14 @@ from ecueditor.ui.design.fonts import numeric_font
 from ecueditor.ui.design.icons import icon
 from ecueditor.ui.editor.frames.header import FrameHeader
 
-_DEFAULT_VIEW_SCALE = 1.0 / 0.88  # one wheel notch out: keeps corner tick labels separated
+SURFACE_DEFAULT_CAMERA = (25.0, -125.0, 0.0)
+SURFACE_DEFAULT_VIEW_SCALE = 1.0 / 0.88
+SURFACE_DEFAULT_BOX_ASPECT = (1.28, 1.0, 0.82)
+SURFACE_DEFAULT_FOCAL_LENGTH = 0.92
+SURFACE_DEFAULT_REVERSE_Y = True
 
 
-def _scaled_limits(low: float, high: float, scale: float) -> tuple[float, float]:
+def scaled_limits(low: float, high: float, scale: float) -> tuple[float, float]:
     center = (low + high) / 2.0
     half_span = (high - low) * scale / 2.0
     return center - half_span, center + half_span
@@ -101,6 +106,28 @@ def oriented_arrays(x, y, z, *, flip_x: bool, flip_y: bool):
     return ox.copy(), oy.copy(), oz.copy()
 
 
+def surface_display_flips(*, flip_x: bool, flip_y: bool) -> tuple[bool, bool]:
+    """Resolve user toggles against the suite's neutral surface orientation."""
+    return bool(flip_x), SURFACE_DEFAULT_REVERSE_Y ^ bool(flip_y)
+
+
+def surface_projection_arrays(x, y, z, *, flip_x: bool, flip_y: bool):
+    """Return oriented values and normalized render positions for a 3D surface."""
+    ox, oy, oz = oriented_arrays(x, y, z, flip_x=flip_x, flip_y=flip_y)
+    return ox, oy, oz, axis_positions(ox), axis_positions(oy)
+
+
+def surface_value_bounds(values) -> tuple[float, float, float]:
+    """Return the data range and the suite's visual Z padding."""
+    array = np.asarray(values, dtype=float)
+    low, high = float(np.min(array)), float(np.max(array))
+    if high == low:
+        pad = max(1.0, abs(low) * 0.05)
+    else:
+        pad = (high - low) * 0.04
+    return low, high, pad
+
+
 def display_index(
     x: int, y: int, size_x: int, size_y: int, *, flip_x: bool, flip_y: bool,
 ) -> tuple[int, int]:
@@ -155,7 +182,7 @@ class OrbitAccumulator:
         self._pending = None
 
 
-class _CoalescedOrbitController:
+class CoalescedOrbitController:
     """Frame-limit 3D navigation so mouse input cannot build a redraw backlog."""
 
     def __init__(self, canvas) -> None:
@@ -169,7 +196,7 @@ class _CoalescedOrbitController:
         self._timer.setInterval(16)
         self._timer.setTimerType(Qt.TimerType.PreciseTimer)
         self._timer.timeout.connect(self.flush)
-        self._callback_ids = (
+        self._callback_ids: tuple[int, ...] = (
             canvas.mpl_connect("button_press_event", self._on_press),
             canvas.mpl_connect("motion_notify_event", self._on_motion),
             canvas.mpl_connect("button_release_event", self._on_release),
@@ -180,6 +207,14 @@ class _CoalescedOrbitController:
         self.end()
         self.axes = axes
         self._disconnect_default_navigation(axes)
+
+    def shutdown(self) -> None:
+        """Stop queued input and release Matplotlib callbacks before canvas teardown."""
+        self.end()
+        self._timer.stop()
+        for callback_id in self._callback_ids:
+            self.canvas.mpl_disconnect(callback_id)
+        self._callback_ids = ()
 
     def _disconnect_default_navigation(self, axes) -> None:
         callback_names = {
@@ -281,6 +316,58 @@ class _CoalescedOrbitController:
         self.canvas.draw_idle()
 
 
+class SurfaceControlBar(QWidget):
+    """Shared reset/flip controls for suite 3D surface views."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("surfaceControls")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 6, 12, 6)
+        layout.setSpacing(8)
+
+        self.reset_button = QToolButton(self)
+        self.reset_button.setText("Reset view")
+        self.reset_button.setToolTip("Reset view")
+        self.reset_button.setIcon(icon("cube"))
+        self.reset_button.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        layout.addWidget(self.reset_button)
+
+        self.flip_x_button = QToolButton(self)
+        self.flip_x_button.setText("Flip X")
+        self.flip_x_button.setCheckable(True)
+        layout.addWidget(self.flip_x_button)
+
+        self.flip_y_button = QToolButton(self)
+        self.flip_y_button.setText("Flip Y")
+        self.flip_y_button.setCheckable(True)
+        layout.addWidget(self.flip_y_button)
+
+        layout.addStretch(1)
+        self.hint_label = QLabel(
+            "Left drag: orbit  ·  Middle drag: pan  ·  Wheel: zoom",
+            self,
+        )
+        layout.addWidget(self.hint_label)
+
+
+class SurfaceSelectionFooter(QWidget):
+    """Shared selected-cell readout band for suite 3D surface views."""
+
+    def __init__(self, text: str, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("surfaceFooter")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 6, 12, 8)
+        self.value_label = QLabel(text, self)
+        self.value_label.setObjectName("surfaceValue")
+        self.value_label.setFont(numeric_font(9))
+        layout.addWidget(self.value_label)
+        layout.addStretch(1)
+
+
 class Surface3DView(QWidget):
     """Themed Matplotlib calibration surface with native camera-aware axes."""
 
@@ -292,14 +379,21 @@ class Surface3DView(QWidget):
 
         self._table = table
         self._colormap = colormap
-        self._source_model = None
-        self._marker = None
+        self._source_grid: Any | None = None
+        self._source_model: Any | None = None
+        self._source_selection_model: Any | None = None
+        self._source_connections: list[Any] = []
+        self._marker: Any | None = None
         self._highlighted: tuple[int, int] | None = None
         self._flip_x = False
-        self._flip_y = True
-        self._height_scale = 1.0
-        self.surface_item = None
-        self.colorbar = None
+        self._flip_y = False
+        self.surface_item: Any | None = None
+        self.colorbar: Any = None
+        self._tearing_down = False
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.setSingleShot(True)
+        self._refresh_timer.setInterval(0)
+        self._refresh_timer.timeout.connect(self._flush_queued_refresh)
 
         self.setObjectName("surface3dView")
         layout = QVBoxLayout(self)
@@ -308,72 +402,33 @@ class Surface3DView(QWidget):
         self.header = FrameHeader(table.definition)
         layout.addWidget(self.header)
 
-        controls = QWidget()
-        controls.setObjectName("surfaceControls")
-        controls_layout = QHBoxLayout(controls)
-        controls_layout.setContentsMargins(12, 6, 12, 6)
-        controls_layout.setSpacing(8)
-
-        self.reset_button = QToolButton()
-        self.reset_button.setText("Reset view")
-        self.reset_button.setIcon(icon("cube"))
-        self.reset_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        controls_layout.addWidget(self.reset_button)
-
-        self.flip_x_button = QToolButton()
-        self.flip_x_button.setText("Flip X")
-        self.flip_x_button.setCheckable(True)
-        controls_layout.addWidget(self.flip_x_button)
-        self.flip_y_button = QToolButton()
-        self.flip_y_button.setText("Flip Y")
-        self.flip_y_button.setCheckable(True)
-        self.flip_y_button.setChecked(True)
-        controls_layout.addWidget(self.flip_y_button)
-
-        controls_layout.addSpacing(6)
-        controls_layout.addWidget(QLabel("HEIGHT"))
-        self.height_slider = QSlider(Qt.Orientation.Horizontal)
-        self.height_slider.setObjectName("surfaceHeight")
-        self.height_slider.setRange(50, 200)
-        self.height_slider.setValue(100)
-        self.height_slider.setSingleStep(10)
-        self.height_slider.setPageStep(25)
-        self.height_slider.setFixedWidth(120)
-        controls_layout.addWidget(self.height_slider)
-        self.height_label = QLabel("1.0×")
-        self.height_label.setObjectName("surfaceHeightValue")
-        controls_layout.addWidget(self.height_label)
-        controls_layout.addStretch(1)
-        controls_layout.addWidget(QLabel(
-            "Left drag: orbit  ·  Middle drag: pan  ·  Wheel: zoom"
-        ))
-        layout.addWidget(controls)
+        self.controls = SurfaceControlBar(self)
+        self.reset_button = self.controls.reset_button
+        self.flip_x_button = self.controls.flip_x_button
+        self.flip_y_button = self.controls.flip_y_button
+        layout.addWidget(self.controls)
 
         theme = current_theme()
         self.figure = Figure(figsize=(9.2, 6.1), dpi=100, facecolor=theme.bg)
+        self.axes: Any
         self.canvas = FigureCanvasQTAgg(self.figure)
         self.canvas.setObjectName("surfaceCanvas")
         self.canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.canvas.setMinimumHeight(280)
         self.canvas.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self._orbit_controller = _CoalescedOrbitController(self.canvas)
+        self._orbit_controller = CoalescedOrbitController(self.canvas)
         layout.addWidget(self.canvas, 1)
 
-        footer = QWidget()
-        footer.setObjectName("surfaceFooter")
-        footer_layout = QHBoxLayout(footer)
-        footer_layout.setContentsMargins(12, 6, 12, 8)
-        self.value_label = QLabel("Select a cell in the table to inspect the surface")
-        self.value_label.setObjectName("surfaceValue")
-        self.value_label.setFont(numeric_font(9))
-        footer_layout.addWidget(self.value_label)
-        footer_layout.addStretch(1)
-        layout.addWidget(footer)
+        self.footer = SurfaceSelectionFooter(
+            "Select a cell in the table to inspect the surface",
+            self,
+        )
+        self.value_label = self.footer.value_label
+        layout.addWidget(self.footer)
 
         self.reset_button.clicked.connect(self.reset_view)
         self.flip_x_button.toggled.connect(self._set_flip_x)
         self.flip_y_button.toggled.connect(self._set_flip_y)
-        self.height_slider.valueChanged.connect(self._set_height)
         self._rebuild(reset_camera=True)
 
     def _style_axes(self) -> None:
@@ -406,15 +461,30 @@ class Surface3DView(QWidget):
         from ecueditor.ui.design.theme_manager import current_theme
 
         highlighted = self._highlighted
-        old_camera = None
+        old_view = None
         if hasattr(self, "axes") and not reset_camera:
-            old_camera = (self.axes.elev, self.axes.azim, getattr(self.axes, "roll", 0.0))
+            old_view = {
+                "camera": (
+                    self.axes.elev, self.axes.azim, getattr(self.axes, "roll", 0.0),
+                ),
+                "xlim": tuple(self.axes.get_xlim3d()),
+                "ylim": tuple(self.axes.get_ylim3d()),
+                "zlim": tuple(self.axes.get_zlim3d()),
+                "position": self.axes.get_position(original=True).frozen(),
+            }
 
         real_x, real_y, real_z = surface_arrays(self._table)
-        x, y, z = oriented_arrays(
-            real_x, real_y, real_z, flip_x=self._flip_x, flip_y=self._flip_y,
+        display_flip_x, display_flip_y = surface_display_flips(
+            flip_x=self._flip_x,
+            flip_y=self._flip_y,
         )
-        nx, ny = axis_positions(x), axis_positions(y)
+        x, y, z, nx, ny = surface_projection_arrays(
+            real_x,
+            real_y,
+            real_z,
+            flip_x=display_flip_x,
+            flip_y=display_flip_y,
+        )
         self._real = (x, y, z)
         self._positions = (nx, ny)
 
@@ -427,12 +497,10 @@ class Surface3DView(QWidget):
         self._style_axes()
 
         xx, yy = np.meshgrid(nx, ny, indexing="ij")
-        low, high = float(np.min(z)), float(np.max(z))
+        low, high, pad = surface_value_bounds(z)
         if high == low:
-            pad = max(1.0, abs(low) * 0.05)
             norm = Normalize(low - pad, high + pad)
         else:
-            pad = (high - low) * 0.04
             norm = Normalize(low, high)
         cmap = matplotlib_colormap(self._colormap)
         self.surface_item = self.axes.plot_surface(
@@ -447,8 +515,12 @@ class Surface3DView(QWidget):
                              [f"{x[index]:g}" for index in x_ticks])
         self.axes.set_yticks([float(ny[index]) for index in y_ticks],
                              [f"{y[index]:g}" for index in y_ticks])
-        xy_limits = _scaled_limits(0.0, 10.0, _DEFAULT_VIEW_SCALE)
-        z_limits = _scaled_limits(low - pad, high + pad, _DEFAULT_VIEW_SCALE)
+        xy_limits = scaled_limits(0.0, 10.0, SURFACE_DEFAULT_VIEW_SCALE)
+        z_limits = scaled_limits(
+            low - pad,
+            high + pad,
+            SURFACE_DEFAULT_VIEW_SCALE,
+        )
         self.axes.set_xlim(*xy_limits)
         self.axes.set_ylim(*xy_limits)
         self.axes.set_zlim(*z_limits)
@@ -465,9 +537,9 @@ class Surface3DView(QWidget):
         self.axes.set_zlabel(z_units or "Value", labelpad=5)
         for axis in (self.axes.xaxis, self.axes.yaxis, self.axes.zaxis):
             axis.label.set_fontsize(9)
-        self.axes.set_box_aspect((1.28, 1.0, 0.82 * self._height_scale))
-        self.axes.set_proj_type("persp", focal_length=0.92)
-        camera = old_camera or (25.0, -125.0, 0.0)
+        self.axes.set_box_aspect(SURFACE_DEFAULT_BOX_ASPECT)
+        self.axes.set_proj_type("persp", focal_length=SURFACE_DEFAULT_FOCAL_LENGTH)
+        camera = old_view["camera"] if old_view is not None else SURFACE_DEFAULT_CAMERA
         self.axes.view_init(elev=camera[0], azim=camera[1], roll=camera[2])
 
         mappable = ScalarMappable(norm=norm, cmap=cmap)
@@ -480,16 +552,93 @@ class Surface3DView(QWidget):
         self.colorbar.ax.set_facecolor(theme.bg)
         self._default_axes_position = self.axes.get_position(original=True).frozen()
 
+        if old_view is not None:
+            self.axes.set_xlim3d(*old_view["xlim"])
+            self.axes.set_ylim3d(*old_view["ylim"])
+            old_z = old_view["zlim"]
+            ascending = old_z[0] <= old_z[1]
+            old_low, old_high = sorted(old_z)
+            visible_low = low - pad if low < old_low else old_low
+            visible_high = high + pad if high > old_high else old_high
+            preserved_z = (visible_low, visible_high)
+            if not ascending:
+                preserved_z = preserved_z[::-1]
+            self.axes.set_zlim3d(*preserved_z)
+            self.axes.set_position(old_view["position"], which="both")
+
         self._marker = None
         self.canvas.draw_idle()
         if highlighted is not None:
             self.highlight_cell(*highlighted)
 
     def bind_source_model(self, model) -> None:
+        """Compatibility binding for callers without a table view or selection model."""
+        self.unbind_source_grid()
         self._source_model = model
 
-    def _on_source_data_changed(self, *_args) -> None:
-        self.refresh()
+    def bind_source_grid(self, grid) -> None:
+        """Own one source-grid binding and immediately mirror its current selection."""
+        if grid is self._source_grid:
+            self._sync_source_selection()
+            return
+        self.unbind_source_grid()
+        self._source_grid = grid
+        self._source_model = grid.model()
+        self._source_selection_model = grid.selectionModel()
+        self._source_connections = [
+            self._source_selection_model.currentChanged.connect(
+                self._on_source_selection_changed
+            ),
+            grid.destroyed.connect(self._on_source_grid_destroyed),
+        ]
+        self._sync_source_selection()
+
+    def unbind_source_grid(self, grid=None) -> None:
+        """Release a live source without retaining a closing grid or its model."""
+        if grid is not None and grid is not self._source_grid:
+            return
+        for connection in self._source_connections:
+            try:
+                QObject.disconnect(connection)
+            except (RuntimeError, TypeError):
+                pass
+        self._source_connections = []
+        self._source_grid = None
+        self._source_model = None
+        self._source_selection_model = None
+        self._refresh_timer.stop()
+        self._highlighted = None
+        self._remove_marker(draw=False)
+        self.value_label.setText("Select a cell in the table to inspect the surface")
+
+    def _on_source_grid_destroyed(self, *_args) -> None:
+        self._source_connections = []
+        self._source_grid = None
+        self._source_model = None
+        self._source_selection_model = None
+        self._refresh_timer.stop()
+        self._highlighted = None
+        self._marker = None
+
+    def _sync_source_selection(self) -> None:
+        selection = self._source_selection_model
+        if selection is None:
+            self.clear_highlight()
+            return
+        current = selection.currentIndex()
+        if not current.isValid():
+            indexes = selection.selectedIndexes()
+            current = indexes[0] if indexes else current
+        self._on_source_selection_changed(current)
+
+    def queue_refresh(self) -> None:
+        """Collapse any number of source notifications into one event-loop rebuild."""
+        if not self._tearing_down and not self._refresh_timer.isActive():
+            self._refresh_timer.start()
+
+    def _flush_queued_refresh(self) -> None:
+        if not self._tearing_down:
+            self._rebuild()
 
     def _on_source_selection_changed(self, current, _previous=None) -> None:
         if current is not None and current.isValid() and self._source_model is not None:
@@ -498,14 +647,40 @@ class Surface3DView(QWidget):
             self.clear_highlight()
 
     def refresh(self) -> None:
+        self._refresh_timer.stop()
         self._rebuild()
 
     def set_colormap(self, name: str) -> None:
         self._colormap = name
+        self._refresh_timer.stop()
         self._rebuild()
 
+    def refresh_theme(self) -> None:
+        """Repaint Matplotlib-owned colors after the application theme changes."""
+        if self._tearing_down:
+            return
+        self._refresh_timer.stop()
+        self._rebuild(reset_camera=False)
+
+    def teardown(self) -> None:
+        """Stop every queued callback before an MDI document detaches this widget."""
+        if self._tearing_down:
+            return
+        self._tearing_down = True
+        self._refresh_timer.stop()
+        self.unbind_source_grid()
+        self._orbit_controller.shutdown()
+
+    def closeEvent(self, event) -> None:
+        self.teardown()
+        super().closeEvent(event)
+
     def reset_view(self) -> None:
-        self.axes.view_init(elev=25.0, azim=-125.0, roll=0.0)
+        self.axes.view_init(
+            elev=SURFACE_DEFAULT_CAMERA[0],
+            azim=SURFACE_DEFAULT_CAMERA[1],
+            roll=SURFACE_DEFAULT_CAMERA[2],
+        )
         if hasattr(self, "_default_limits"):
             self.axes.set_xlim3d(*self._default_limits[0])
             self.axes.set_ylim3d(*self._default_limits[1])
@@ -522,12 +697,6 @@ class Surface3DView(QWidget):
         self._flip_y = enabled
         self._rebuild()
 
-    def _set_height(self, value: int) -> None:
-        self._height_scale = value / 100.0
-        self.height_label.setText(f"{self._height_scale:.1f}×")
-        self.axes.set_box_aspect((1.28, 1.0, 0.82 * self._height_scale))
-        self.canvas.draw_idle()
-
     def highlight_cell(self, x: int, y: int) -> None:
         self._remove_marker(draw=False)
         nx, ny = self._positions
@@ -537,8 +706,17 @@ class Surface3DView(QWidget):
             self._highlighted = None
             return
         self._highlighted = (x, y)
+        display_flip_x, display_flip_y = surface_display_flips(
+            flip_x=self._flip_x,
+            flip_y=self._flip_y,
+        )
         display_x, display_y = display_index(
-            x, y, size_x, size_y, flip_x=self._flip_x, flip_y=self._flip_y,
+            x,
+            y,
+            size_x,
+            size_y,
+            flip_x=display_flip_x,
+            flip_y=display_flip_y,
         )
         from ecueditor.ui.design.theme_manager import current_theme
 

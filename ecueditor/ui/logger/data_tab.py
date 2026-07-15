@@ -58,7 +58,7 @@ class DataTabModel(QAbstractTableModel):
         if self._pending_rows:
             top = self.index(min(self._pending_rows), self.COL_VALUE)
             bot = self.index(max(self._pending_rows), self.COL_MAX)
-            self.dataChanged.emit(top, bot, [Qt.DisplayRole])
+            self.dataChanged.emit(top, bot, [Qt.ItemDataRole.DisplayRole])
             self._pending_rows.clear()
 
     def pending_count(self) -> int:
@@ -72,7 +72,7 @@ class DataTabModel(QAbstractTableModel):
         if self._rows:
             top = self.index(0, self.COL_MIN)
             bot = self.index(len(self._rows) - 1, self.COL_MAX)
-            self.dataChanged.emit(top, bot, [Qt.DisplayRole])
+            self.dataChanged.emit(top, bot, [Qt.ItemDataRole.DisplayRole])
         self._pending_rows.clear()
 
     def min_max_for(self, channel_id: str) -> tuple[float | None, float | None]:

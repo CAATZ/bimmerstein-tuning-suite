@@ -6,6 +6,14 @@ from ecueditor.ui.editor.table_model import TableGridModel
 def _clip():
     return QApplication.clipboard()
 
+
+def _cell_state_snapshot(model: TableGridModel) -> tuple[tuple[int, int, bool], ...]:
+    cells = list(model.table.cells)
+    for axis in (model.table.x_axis, model.table.y_axis):
+        if axis is not None:
+            cells.extend(axis.cells)
+    return tuple((cell.raw, cell.original, cell.pending_write) for cell in cells)
+
 def copy_table(model: TableGridModel) -> None:
     _clip().setText(model.table.to_text())
 
@@ -61,9 +69,11 @@ def paste(model: TableGridModel, indexes) -> list:
                     touched.add((row, col))
                     # Idempotent paste: copy_selection formats at display precision (lossy), so
                     # round-tripping an unchanged value via to_raw can land on a neighbour byte.
-                    if model.current_scale.format_value(value) == model.data(idx, Qt.DisplayRole):
+                    if model.current_scale.format_value(value) == model.data(
+                        idx, Qt.ItemDataRole.DisplayRole
+                    ):
                         continue
-                    model.setData(idx, value, Qt.EditRole)
+                    model.setData(idx, value, Qt.ItemDataRole.EditRole)
     else:
         # core parses [TableND] only (golden format pinned in Phase 1)
         before = {
@@ -88,19 +98,28 @@ def paste(model: TableGridModel, indexes) -> list:
     return [model.index(row, col) for row, col in sorted(touched)]
 
 def undo_selected(model: TableGridModel, indexes) -> None:
+    before = _cell_state_snapshot(model)
     model.beginResetModel()
     for idx in indexes:
         x, y = model.cell_xy(idx)
         model.table.cell_at(x, y).undo()
     model.endResetModel()
     model.clear_undo_history()
+    if _cell_state_snapshot(model) != before:
+        model.external_edit_committed()
 
 def undo_all(model: TableGridModel) -> None:
+    before = _cell_state_snapshot(model)
     model.beginResetModel(); model.table.undo_all(); model.endResetModel()
     model.clear_undo_history()
+    if _cell_state_snapshot(model) != before:
+        model.external_edit_committed()
 
 def set_revert_point(model: TableGridModel) -> None:
+    before = _cell_state_snapshot(model)
     model.beginResetModel()
     model.table.set_revert_point()
     model.endResetModel()
     model.clear_undo_history()
+    if _cell_state_snapshot(model) != before:
+        model.external_edit_committed()

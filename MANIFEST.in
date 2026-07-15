@@ -4,17 +4,25 @@ include README.md
 include RELEASE_NOTES.md
 include THIRD_PARTY_NOTICES.md
 include pyproject.toml
+include MANIFEST.in
 
 recursive-include ecueditor *.py
+include manual/USER_MANUAL.md
+recursive-include manual/images *.png
+include packaging/build_user_manual.py
+include packaging/ecueditor.spec
+include packaging/ecueditor.iss
 recursive-include plugins *.py
 recursive-include resources/fonts *.ttf *.txt
 recursive-include resources/icons *.ico *.svg *.txt
+include scripts/__init__.py
+include scripts/build_app_icon.py
+include scripts/build_release.py
+include scripts/collect_dependency_licenses.py
 
 prune .*
 prune docs
 prune tests
-prune scripts
-prune packaging
 prune build
 prune build-v2
 prune dist
@@ -24,8 +32,7 @@ prune logs
 exclude AGENTS.md
 exclude CONTRIBUTING.md
 exclude NEW_SESSION_HANDOFF.md
-exclude MANIFEST.in
-
+exclude packaging/capture_manual_screenshots.py
 global-exclude *.py[cod]
 global-exclude __pycache__
 global-exclude *.log

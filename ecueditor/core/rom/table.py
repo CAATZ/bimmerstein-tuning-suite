@@ -206,6 +206,44 @@ def _read_cells(image, memory_model: MemoryModel, sa: int, count: int, storage_t
         cells.append(DataCell(raw=raw, original=raw, scale=scale, storage_min=lo, storage_max=hi))
     return cells
 
+
+def _physical_data_indices(definition: TableDef) -> list[int]:
+    """Return logical row-major indices in their physical ROM storage order.
+
+    RomRaider applies ``flipy`` to the column coordinate and ``flipx`` to the
+    row coordinate before an optional X/Y swap. The counterintuitive attribute
+    names are retained for byte-compatible populate/save behavior.
+    """
+    sx = definition.size_x or 1
+    sy = definition.size_y or 1
+    if definition.type != "3D":
+        count = sx if definition.type == "1D" else max(sx, sy)
+        return list(range(count))
+
+    i_max = sx if definition.swap_xy else sy
+    j_max = sy if definition.swap_xy else sx
+    indices: list[int] = []
+    for i in range(i_max):
+        for j in range(j_max):
+            x = j_max - j - 1 if definition.flip_y else j
+            y = i_max - i - 1 if definition.flip_x else i
+            if definition.swap_xy:
+                x, y = y, x
+            indices.append(y * sx + x)
+    return indices
+
+
+def _logical_data_cells(definition: TableDef, physical_cells: list[DataCell]) -> list[DataCell]:
+    indices = _physical_data_indices(definition)
+    if indices == list(range(len(physical_cells))):
+        return physical_cells
+    logical: list[DataCell | None] = [None] * len(physical_cells)
+    for physical_index, logical_index in enumerate(indices):
+        logical[logical_index] = physical_cells[physical_index]
+    if any(cell is None for cell in logical):
+        raise TableError(f"invalid storage layout for table {definition.name!r}")
+    return [cell for cell in logical if cell is not None]
+
 def _write_cells(image: bytearray, memory_model: MemoryModel, sa: int, cells: list[DataCell],
                  storage_type: str, little_endian: bool) -> None:
     width = storage.storage_width(storage_type)
@@ -218,8 +256,10 @@ def _write_cells(image: bytearray, memory_model: MemoryModel, sa: int, cells: li
             # aliased table flushes last would overwrite the other's edit with its own stale,
             # unedited copy of the shared bytes.
             continue
-        storage.write_int(image, memory_model.file_offset(sa + i * width), cell.raw, storage_type, little_endian)
-        cell.mark_written()
+        storage.write_int(
+            image, memory_model.file_offset(sa + i * width), cell.raw,
+            storage_type, little_endian,
+        )
 
 def _build_axis(axis: AxisDef | None, role: str, definition: TableDef, image,
                 memory_model: MemoryModel, endian_default: str) -> "Table1D | None":
@@ -283,7 +323,9 @@ def _build_switch_table(definition: TableDef, image, memory_model: MemoryModel,
     width = storage.storage_width(storage_type)
     count = max(1, _switch_byte_count(definition) // width)
     scale = _scale_from(definition.scale)
-    cells = _read_cells(image, memory_model, definition.storage_address, count, storage_type, little, scale)
+    cells = _read_cells(
+        image, memory_model, definition.storage_address, count, storage_type, little, scale
+    )
     return SwitchTable(definition, cells)
 
 def _build_bitwise_table(definition: TableDef, image, memory_model: MemoryModel,
@@ -323,7 +365,10 @@ def build_table(definition: TableDef, image, memory_model: MemoryModel,
     else:  # 1D
         count = sx
 
-    cells = _read_cells(image, memory_model, definition.storage_address, count, storage_type, little, scale)
+    physical_cells = _read_cells(
+        image, memory_model, definition.storage_address, count, storage_type, little, scale
+    )
+    cells = _logical_data_cells(definition, physical_cells)
     x_axis = _build_axis(definition.x_axis, "X", definition, image, memory_model, endian_default)
     y_axis = _build_axis(definition.y_axis, "Y", definition, image, memory_model, endian_default)
     return cls(definition, cells, x_axis, y_axis)
@@ -339,7 +384,8 @@ def _storage_groups(table: Table, endian_default: str
     if definition.storage_address is not None:
         storage_type = definition.storage_type or "uint8"
         little = _little_endian(definition.endian, endian_default)
-        yield table.cells, definition.storage_address, storage_type, little
+        indices = _physical_data_indices(definition)
+        yield [table.cells[index] for index in indices], definition.storage_address, storage_type, little
 
     for axis in (table.x_axis, table.y_axis):
         if axis is None:

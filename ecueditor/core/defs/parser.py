@@ -3,7 +3,7 @@ import re
 from pathlib import Path
 from xml.etree import ElementTree as ET
 from ecueditor.core.defs.model import RomId, RomDefinition
-from ecueditor.core.memory import probe_offset, model_for_match
+from ecueditor.core.memory import image_size_compatible, probe_offset, model_for_match
 from ecueditor.core.memory.base import MemoryModel
 from ecueditor.core.errors import DefinitionError
 
@@ -73,6 +73,8 @@ class DefinitionDocument:
     def find_matching(self, image: bytes) -> tuple[RomId, MemoryModel] | None:
         size = len(image)
         for r in self.rom_ids:
+            if not image_size_compatible(r, size):
+                continue
             probe = probe_offset(r, size)              # framing-correct probe location (fo() or raw)
             if r.matches(image, probe=probe):
                 return r, model_for_match(r, size)

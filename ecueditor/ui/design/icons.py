@@ -1,14 +1,15 @@
 """Token-tinted SVG icons (spec §3 D7). Vendored Lucide subset (ISC), stroke=currentColor."""
 from __future__ import annotations
 import warnings
-from pathlib import Path
+
+from ecueditor.runtime_paths import icons_dir
 
 ICON_NAMES: tuple[str, ...] = (
     "app", "rom", "table-3d", "table-2d", "scalar", "switch", "open", "save", "close",
     "refresh", "undo", "undo-all", "revert-flag", "copy", "paste", "interpolate",
     "compare", "color", "cube", "logger", "settings", "search", "lock", "warning", "check",
 )
-_ICONS_DIR = Path(__file__).resolve().parents[3] / "resources" / "icons"
+_ICONS_DIR = icons_dir()
 _warned: set[str] = set()
 
 
@@ -45,6 +46,7 @@ def icon(name: str, color: str | None = None):
     if data is None:
         return QIcon()
     ic = QIcon()
-    for size in (16, 20, 24, 32):
+    sizes = (16, 20, 24, 32, 48, 64) if name == "app" else (16, 20, 24, 32)
+    for size in sizes:
         ic.addPixmap(pixmap(name, c, size))
     return ic

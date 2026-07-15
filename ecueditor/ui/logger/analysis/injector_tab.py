@@ -83,7 +83,9 @@ class InjectorTab(QtWidgets.QWidget):
             # half-typed id must never reach the engine while recording (H2/H3, backlog
             # "Phase 6 exit").
             combo.activated.connect(lambda _i, r=role: self._rebind_role(r))
-            combo.lineEdit().editingFinished.connect(lambda r=role: self._rebind_role(r))
+            line_edit = combo.lineEdit()
+            if line_edit is not None:
+                line_edit.editingFinished.connect(lambda r=role: self._rebind_role(r))
             self._role_combos[role] = combo
             chan_form.addRow(role, combo)
 

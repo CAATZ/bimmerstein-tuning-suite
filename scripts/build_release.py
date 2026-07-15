@@ -9,6 +9,7 @@ import platform
 import shutil
 import subprocess
 import sys
+from typing import Any
 import zipfile
 
 
@@ -17,7 +18,13 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from ecueditor import __version__  # noqa: E402
-from ecueditor.metadata import PRODUCT_NAME, WINDOWS_APP_STEM  # noqa: E402
+from ecueditor.metadata import (  # noqa: E402
+    PUBLISHER,
+    PRODUCT_NAME,
+    WINDOWS_APP_STEM,
+    display_version,
+    windows_numeric_version,
+)
 from scripts.collect_dependency_licenses import (  # noqa: E402
     RUNTIME_DISTRIBUTIONS,
     collect_dependency_licenses,
@@ -117,6 +124,48 @@ def _build_environment_text() -> str:
     return "\n".join(rows) + "\n"
 
 
+def _windows_version_info(version: str) -> Any:
+    """Return a PyInstaller VersionInfo object derived from canonical metadata."""
+    from PyInstaller.utils.win32.versioninfo import (
+        FixedFileInfo,
+        StringFileInfo,
+        StringStruct,
+        StringTable,
+        VarFileInfo,
+        VarStruct,
+        VSVersionInfo,
+    )
+
+    numeric_version = windows_numeric_version(version)
+    numeric_parts = tuple(int(part) for part in numeric_version.split("."))
+    return VSVersionInfo(
+        ffi=FixedFileInfo(filevers=numeric_parts, prodvers=numeric_parts),
+        kids=[
+            StringFileInfo([
+                StringTable("040904B0", [
+                    StringStruct("CompanyName", PUBLISHER),
+                    StringStruct("FileDescription", PRODUCT_NAME),
+                    StringStruct("FileVersion", numeric_version),
+                    StringStruct("InternalName", WINDOWS_APP_STEM),
+                    StringStruct(
+                        "LegalCopyright",
+                        f"Copyright (C) 2026 {PUBLISHER} and contributors",
+                    ),
+                    StringStruct("OriginalFilename", f"{WINDOWS_APP_STEM}.exe"),
+                    StringStruct("ProductName", PRODUCT_NAME),
+                    StringStruct("ProductVersion", display_version(version)),
+                ]),
+            ]),
+            VarFileInfo([VarStruct("Translation", [1033, 1200])]),
+        ],
+    )
+
+
+def _windows_version_info_text(version: str) -> str:
+    """Serialize canonical Windows executable metadata for PyInstaller."""
+    return str(_windows_version_info(version))
+
+
 def _find_iscc(explicit: Path | None) -> Path:
     candidates = [
         explicit,
@@ -153,11 +202,14 @@ def build_release(*, output_root: Path, iscc: Path | None, installer: bool = Tru
     collect_dependency_licenses(licenses)
     environment_file = build_root / "BUILD_ENVIRONMENT.txt"
     environment_file.write_text(_build_environment_text(), encoding="utf-8")
+    version_file = build_root / f"{WINDOWS_APP_STEM}-version-info.txt"
+    version_file.write_text(_windows_version_info_text(version), encoding="utf-8")
 
     pyinstaller_dist = build_root / "pyinstaller-dist"
     pyinstaller_work = build_root / "pyinstaller-work"
     build_env = os.environ.copy()
     build_env["ECUEDITOR_DEPENDENCY_LICENSES"] = str(licenses)
+    build_env["ECUEDITOR_VERSION_FILE"] = str(version_file)
     _run([
         sys.executable,
         "-m",
@@ -192,10 +244,11 @@ def build_release(*, output_root: Path, iscc: Path | None, installer: bool = Tru
     artifacts = [portable_zip, source_zip, portable_dir / executable.name]
     if installer:
         compiler = _find_iscc(iscc)
-        numeric_version = "0.1.0.1"
+        numeric_version = windows_numeric_version(version)
         _run([
             str(compiler),
             f"/DAppVersion={version}",
+            f"/DAppDisplayVersion={display_version(version)}",
             f"/DAppNumericVersion={numeric_version}",
             f"/DSourceDir={portable_dir}",
             f"/DOutputDir={release_dir}",

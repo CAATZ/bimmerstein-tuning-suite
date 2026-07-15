@@ -14,8 +14,10 @@ class ForceLoadDialog(QDialog):
         self.list = QListWidget(); lay.addWidget(self.list)
         for xmlid in xmlids:
             self.list.addItem(QListWidgetItem(xmlid))
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.button(QDialogButtonBox.Ok).setText("Load as selected definition")
+        bb = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        bb.button(QDialogButtonBox.StandardButton.Ok).setText("Load as selected definition")
         bb.accepted.connect(self._accept); bb.rejected.connect(self.reject)
         lay.addWidget(bb)
 

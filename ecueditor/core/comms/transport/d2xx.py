@@ -24,7 +24,12 @@ class D2XXTransport(HalfDuplexTransport):
             import ftd2xx  # type: ignore
         except ImportError as exc:                       # pragma: no cover - env dependent
             raise CommsError("ftd2xx not installed (pip install ftd2xx)") from exc
-        index = int(port.split(":", 1)[1]) if port.upper().startswith("FTDI:") else 0
+        if not port.upper().startswith("FTDI:"):
+            raise CommsError(f"D2XX requires an FTDI:n port, got {port!r}")
+        try:
+            index = int(port.split(":", 1)[1])
+        except (IndexError, ValueError) as exc:
+            raise CommsError(f"invalid FTDI port {port!r}") from exc
         self._dev = ftd2xx.open(index)
         self._dev.setBaudRate(params.baud)
         self._dev.setDataCharacteristics(params.databits, _STOP[params.stopbits], _PARITY[params.parity])

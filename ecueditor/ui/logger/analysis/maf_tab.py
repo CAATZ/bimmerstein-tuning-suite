@@ -85,7 +85,9 @@ class MafTab(QtWidgets.QWidget):
             # half-typed id must never reach the engine while recording (H2/H3, backlog
             # "Phase 6 exit").
             combo.activated.connect(lambda _i, r=role: self._rebind_role(r))
-            combo.lineEdit().editingFinished.connect(lambda r=role: self._rebind_role(r))
+            line_edit = combo.lineEdit()
+            if line_edit is not None:
+                line_edit.editingFinished.connect(lambda r=role: self._rebind_role(r))
             self._role_combos[role] = combo
             chan_form.addRow(role, combo)
 
@@ -100,9 +102,10 @@ class MafTab(QtWidgets.QWidget):
                            ("MAF min", self.maf_min_field), ("MAF max", self.maf_max_field),
                            ("MAFv min", self.mafv_min_field), ("MAFv max", self.mafv_max_field),
                            ("ECT min", self.ect_min_field), ("IAT max", self.iat_max_field),
-                           ("dMAFv/dt max", self.dmafv_dt_max_field), ("Tip-in max", self.tip_in_max_field),
-                           ("Poly order", self.order_field)):
+                           ("dMAFv/dt max", self.dmafv_dt_max_field),
+                           ("Tip-in max", self.tip_in_max_field)):
             filt.addRow(label, box)
+        filt.addRow("Poly order", self.order_field)
         btns = QtWidgets.QHBoxLayout()
         for b in (self.record_btn, self.interp_btn, self.update_btn, self.reset_btn):
             btns.addWidget(b)

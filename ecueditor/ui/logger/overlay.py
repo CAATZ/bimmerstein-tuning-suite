@@ -38,3 +38,12 @@ class LiveOverlayBridge:
                         grid.set_live_value(value)
                     except RuntimeError:      # C++ widget deleted (subwindow closed via [X]) -- H9
                         grids.remove(grid)
+
+    def clear(self) -> None:
+        """Remove the last live highlight from every registered table."""
+        for grids in self._by_logparam.values():
+            for grid in list(grids):
+                try:
+                    grid.set_live_value(None)
+                except RuntimeError:
+                    grids.remove(grid)

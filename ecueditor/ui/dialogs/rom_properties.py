@@ -27,7 +27,7 @@ class RomPropertiesDialog(QDialog):
             v = QLabel(value); v.setTextInteractionFlags(
                 v.textInteractionFlags() | v.textInteractionFlags().TextSelectableByMouse)
             form.addRow(label, v)
-        bb = QDialogButtonBox(QDialogButtonBox.Ok)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
         bb.accepted.connect(self.accept); lay.addWidget(bb)
 
     def summary_text(self) -> str:

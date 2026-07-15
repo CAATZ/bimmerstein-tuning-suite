@@ -5,13 +5,23 @@ import argparse
 from html import escape
 from pathlib import Path
 import re
+import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from ecueditor import __version__  # noqa: E402
+from ecueditor.metadata import display_version  # noqa: E402
+
 SOURCE = ROOT / "manual" / "USER_MANUAL.md"
 OUTPUT_DIR = ROOT / "output" / "pdf"
 OUTPUT_NAME = "BimmerStein-Tuning-Suite-User-Manual.pdf"
 TEMP_DIR = ROOT / "tmp" / "pdfs"
+DISPLAY_VERSION = display_version(__version__)
+FOOTER_VERSION_TEXT = f"User Manual - Version {DISPLAY_VERSION}"
+COVER_VERSION_TEXT = f"Version {DISPLAY_VERSION} - Windows x64"
 
 
 def _inline(text: str) -> str:
@@ -424,7 +434,7 @@ def build_pdf(output: Path) -> Path:
         canvas.line(left, 13 * mm, page_width - right, 13 * mm)
         canvas.setFont(styles["regular"], 7.5)
         canvas.setFillColor(colors.HexColor("#6d7580"))
-        canvas.drawString(left, 8.5 * mm, "User Manual - Version 0.1.0 Beta 1")
+        canvas.drawString(left, 8.5 * mm, FOOTER_VERSION_TEXT)
         canvas.drawRightString(page_width - right, 8.5 * mm, str(document.page))
         canvas.restoreState()
 
@@ -460,7 +470,7 @@ def build_pdf(output: Path) -> Path:
         Paragraph("ECU Calibration and Data Logging", styles["cover_subtitle"]),
         Spacer(1, 15 * mm),
         Paragraph("USER MANUAL", styles["cover_meta"]),
-        Paragraph("Version 0.1.0 Beta 1 - Windows x64", styles["cover_meta"]),
+        Paragraph(COVER_VERSION_TEXT, styles["cover_meta"]),
         Spacer(1, 42 * mm),
         Paragraph(
             "Read the safety section before editing a calibration. Keep an untouched backup "

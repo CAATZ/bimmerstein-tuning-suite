@@ -1,10 +1,10 @@
 """Bundled tabular-figure numeric font (spec §3 D8). UI chrome stays on the system font."""
 from __future__ import annotations
-from pathlib import Path
+from ecueditor.runtime_paths import fonts_dir
 
 NUMERIC_FAMILY = "JetBrains Mono"
 _FALLBACK_FAMILY = "Consolas"
-_FONTS_DIR = Path(__file__).resolve().parents[3] / "resources" / "fonts"
+_FONTS_DIR = fonts_dir()
 _state: dict[str, bool | None] = {"loaded": None}
 
 

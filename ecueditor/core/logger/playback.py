@@ -46,6 +46,10 @@ class PlaybackSource:
             if prev_ms is not None and speed > 0:
                 dt = (sample.timestamp_ms - prev_ms) / 1000.0 / speed
                 if dt > 0:
-                    time.sleep(dt)
+                    if stop is not None:
+                        if stop.wait(dt):
+                            return
+                    else:
+                        time.sleep(dt)
             callback(sample)
             prev_ms = sample.timestamp_ms

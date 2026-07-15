@@ -27,6 +27,7 @@ RUNTIME_DISTRIBUTIONS = (
     "PySide6_Addons",
     "PySide6_Essentials",
     "python-dateutil",
+    "scipy",
     "shiboken6",
     "six",
     "PyInstaller",

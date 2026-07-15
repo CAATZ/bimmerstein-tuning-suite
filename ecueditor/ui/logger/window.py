@@ -4,7 +4,7 @@ import logging
 import xml.etree.ElementTree as ET
 from typing import Callable, Sequence
 
-from PySide6.QtCore import QObject, Qt, QSignalBlocker, Signal
+from PySide6.QtCore import Qt, QSignalBlocker, Signal
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QComboBox, QDockWidget, QFileDialog, QHBoxLayout, QLabel,
                                QMainWindow, QMenuBar, QMessageBox, QPushButton, QStatusBar,
@@ -45,13 +45,16 @@ class LoggerWindow(QMainWindow):
                  port_lister: Callable[[], list[str]] = list_ports,
                  profiles: Sequence[CarProfile] = (),
                  settings: EditorSettings | None = None,
-                 parent: QObject | None = None) -> None:
+                 parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.setWindowTitle(f"{PRODUCT_NAME} — Logger")
         self._definition = definition
         self._controller_factory = controller_factory
         self._port_lister = port_lister
         self._controller: LoggerController | None = None
+        self._controller_error = False
+        self._disconnect_in_progress = False
         self._settings = settings
 
         # --- connection bar ---
@@ -180,6 +183,7 @@ class LoggerWindow(QMainWindow):
         csv_dir = (Path(settings.logger_csv_dir) if settings and settings.logger_csv_dir
                   else Path.home())
         self._csv = CsvLogSession(out_dir=csv_dir)
+        self._csv.subscribe(self._on_csv_state_changed)
         self._switch_logger = SwitchTriggeredLogger(self._csv,
                                                     channels_provider=self._selected_channels)
         self._controller_sample_hook = None
@@ -216,6 +220,7 @@ class LoggerWindow(QMainWindow):
                              for v in ("livedata", "graph", "dash")}
             with contextlib.ExitStack() as stack:
                 for pane in self.selection_panel._panes:
+                    stack.enter_context(QSignalBlocker(pane))
                     stack.enter_context(QSignalBlocker(pane._table))
                 for cid in checked:
                     try:
@@ -255,7 +260,10 @@ class LoggerWindow(QMainWindow):
 
     def _channels_for(self, ids: set[str]):
         params, switches = self._split_channels(self._definition)
-        return [c for c in (*params, *switches) if c.id in ids]
+        return [
+            c.with_units(self.selection_panel.units_for(c.id))
+            for c in (*params, *switches) if c.id in ids
+        ]
 
     def _on_selection_changed(self) -> None:
         # Route per-view flags immediately and atomically replace the live engine poll set.
@@ -265,7 +273,10 @@ class LoggerWindow(QMainWindow):
         self.dashboard_tab.set_channels(self._channels_for(set(panel.view_ids("dash"))))
         if self._controller is not None and self._controller.is_running:
             self._controller.update_selection(
-                panel.selected_ids(), poll_mode=self.poll_mode_combo.currentData() or "auto")
+                panel.selected_ids(),
+                poll_mode=self.poll_mode_combo.currentData() or "auto",
+                units=panel.units_map(),
+            )
             self._show_selection_report()
 
     # --- ports ---
@@ -298,10 +309,22 @@ class LoggerWindow(QMainWindow):
         self._controller.modeUpdated.connect(self._on_mode)
         self._controller.errorOccurred.connect(self._on_error)
         self._controller.sampleReady.connect(self._dispatch_sample)
-        self._controller.start(
-            self.selection_panel.selected_ids(),
-            poll_mode=self.poll_mode_combo.currentData() or "auto",
-        )
+        self._controller.stopped.connect(self._on_controller_finished)
+        self._controller_error = False
+        try:
+            self._controller.start(
+                self.selection_panel.selected_ids(),
+                poll_mode=self.poll_mode_combo.currentData() or "auto",
+                units=self.selection_panel.units_map(),
+            )
+        except ECUEditorError as exc:
+            self._controller.stop()
+            self._controller = None
+            self.statusBar().showMessage(f"Connect failed: {exc}", 5000)
+            self._on_error(str(exc))
+            self.connect_button.setEnabled(True)
+            self.disconnect_button.setEnabled(False)
+            return
         self.connect_button.setEnabled(False)
         self.disconnect_button.setEnabled(True)
         self._set_chip("conn", "● Connected", "ok")
@@ -314,6 +337,7 @@ class LoggerWindow(QMainWindow):
         # UNCHECKED and wipe the picks that _start_csv/_arm_switch depend on (see Task 13).
         if hasattr(self._definition, "for_ecu") and ecu_id:
             checked = set(self.selection_panel.selected_ids())
+            units_snapshot = self.selection_panel.units_map(checked)
             view_snapshot = {view: set(self.selection_panel.view_ids(view))
                              for view in ("livedata", "graph", "dash")}
             resolved = self._definition.for_ecu(ecu_id)
@@ -335,12 +359,18 @@ class LoggerWindow(QMainWindow):
             # the suppressed cascade can't leave a stale flag.
             with contextlib.ExitStack() as stack:
                 for pane in self.selection_panel._panes:
+                    stack.enter_context(QSignalBlocker(pane))
                     stack.enter_context(QSignalBlocker(pane._table))
                 for cid in checked:
                     try:
                         self.selection_panel.check(cid)      # restore survivors; drop the rest
                     except KeyError:
                         pass   # channel not resolvable for this ECU-ID
+                for cid, units in units_snapshot.items():
+                    try:
+                        self.selection_panel.set_units(cid, units)
+                    except KeyError:
+                        pass
                 # check() above defaults all three view flags back on (RomRaider default) --
                 # re-apply the pre-repopulate per-view flags so a channel the user toggled OFF
                 # for one view (e.g. graph) doesn't silently reappear there after an ECU-ID
@@ -368,6 +398,7 @@ class LoggerWindow(QMainWindow):
 
     def _on_mode(self, status: str) -> None:
         self._set_chip("mode", status, "info" if status == "Fast batch" else "neutral")
+        self._show_selection_report()
 
     def set_cal_id(self, cal_id: str) -> None:
         has_cal = bool(cal_id) and cal_id != "—"
@@ -379,6 +410,7 @@ class LoggerWindow(QMainWindow):
         self._set_chip("polls", f"{stats.polls} polls · {stats.errors} err")
 
     def _on_error(self, msg: str) -> None:
+        self._controller_error = True
         self.statusBar().showMessage(f"Error: {msg}", 5000)
         self._set_chip("conn", "● Error", "warn")
 
@@ -396,7 +428,10 @@ class LoggerWindow(QMainWindow):
 
     def _selected_channels(self):
         ids = set(self.selection_panel.selected_ids())
-        return [c for c in getattr(self._definition, "channels", []) if c.id in ids]
+        return [
+            c.with_units(self.selection_panel.units_for(c.id))
+            for c in getattr(self._definition, "channels", []) if c.id in ids
+        ]
 
     def _start_csv(self, infix: str, absolute: bool) -> None:
         self._csv.start(self._selected_channels(), absolute_time=absolute, name_infix=infix)
@@ -407,6 +442,15 @@ class LoggerWindow(QMainWindow):
         self._csv.stop()
         self._chips["rec"].hide()
         self._chips["rec"].setText("")
+
+    def _on_csv_state_changed(self, active: bool, filename: str) -> None:
+        self.log_controls.set_logging(active)
+        if active:
+            self._set_chip("rec", f"REC {filename}", "danger")
+            self._chips["rec"].show()
+        else:
+            self._chips["rec"].hide()
+            self._chips["rec"].setText("")
 
     def _arm_switch(self, enabled: bool, switch_id: str) -> None:
         self._switch_logger = SwitchTriggeredLogger(self._csv,
@@ -433,6 +477,7 @@ class LoggerWindow(QMainWindow):
         # below does the one real rebuild instead of ~4N redundant ones.
         with contextlib.ExitStack() as stack:
             for pane in self.selection_panel._panes:
+                stack.enter_context(QSignalBlocker(pane))
                 stack.enter_context(QSignalBlocker(pane._table))
             apply_profile(self.selection_panel, profile)
         if profile.port:
@@ -474,7 +519,7 @@ class LoggerWindow(QMainWindow):
             # the build-time per-entry isolation in mount.py (commit d98e8be).
             try:
                 tab.on_sample(sample)
-            except Exception as exc:
+            except (Exception, SystemExit) as exc:
                 key = id(tab)
                 if key not in self._failed_analysis_tabs:
                     self._failed_analysis_tabs.add(key)
@@ -490,13 +535,28 @@ class LoggerWindow(QMainWindow):
             self._controller_sample_hook(sample)
 
     def disconnect_clicked(self) -> None:
+        self._controller_error = False
         if self._controller is not None:
-            self._controller.stop()
+            self._disconnect_in_progress = True
+            try:
+                self._controller.stop()
+            finally:
+                self._disconnect_in_progress = False
             self._controller = None
         self.connect_button.setEnabled(True)
         self.disconnect_button.setEnabled(False)
         self._set_chip("conn", "● Disconnected", "neutral")
+        self.overlay.clear()
         self.disconnected.emit()
+
+    def _on_controller_finished(self) -> None:
+        if self._disconnect_in_progress:
+            return
+        had_error = self._controller_error
+        self.disconnect_clicked()
+        if had_error:
+            self._controller_error = True
+            self._set_chip("conn", "● Error", "warn")
 
     def closeEvent(self, event) -> None:          # T11-m1: [X] must equal Disconnect (C2)
         if self._settings is not None:            # persist last-session selection (C3)
@@ -517,7 +577,7 @@ def launch_logger_window(definition, *, controller_factory: ControllerFactory,
                          port_lister: Callable[[], list[str]] = list_ports,
                          profiles: Sequence[CarProfile] = (),
                          settings: EditorSettings | None = None,
-                         parent: QObject | None = None) -> LoggerWindow:
+                         parent: QWidget | None = None) -> LoggerWindow:
     """Entry point wired to the editor's Logger menu/toolbar action (fact base §1.5 openLogger)."""
     win = LoggerWindow(definition, controller_factory=controller_factory,
                        port_lister=port_lister, profiles=profiles, settings=settings, parent=parent)

@@ -96,8 +96,18 @@ class GridTableFrame(QWidget):
     def sizeHint(self) -> QSize:
         """Measure the current table and visible frame chrome without stale layout caching."""
         grid_hint = self.grid.sizeHint()
-        y_hint = self._y_caption.sizeHint() if not self._y_caption.isHidden() else QSize()
-        band_hint = self._band_host.sizeHint() if not self._band_host.isHidden() else QSize()
+        # QSize() is invalid (-1, -1), not an empty zero-sized contribution.
+        # Hidden optional chrome must not subtract a pixel from the table hint.
+        y_hint = (
+            self._y_caption.sizeHint()
+            if not self._y_caption.isHidden()
+            else QSize(0, 0)
+        )
+        band_hint = (
+            self._band_host.sizeHint()
+            if not self._band_host.isHidden()
+            else QSize(0, 0)
+        )
         header_hint = self.header.sizeHint()
         menubar_hint = self.menubar.sizeHint()
         legend_hint = self.legend.sizeHint()

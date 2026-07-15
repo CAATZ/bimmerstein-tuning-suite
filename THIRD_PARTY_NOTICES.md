@@ -59,6 +59,20 @@ licensed under the MIT License, so its original notice is retained here:
 > DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
 > OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+## ECU Map Studio
+
+`ecueditor/core/mapstudio/` and `ecueditor/ui/mapstudio/` adapt numerical algorithms and review
+workflows from the separately developed ECU Map Studio project. Standalone clipboard, project-file,
+nearest-neighbor, comparison/merge, and selection-math features were not incorporated.
+
+- Project: ECU Map Studio
+- Copyright: `Copyright (c) 2026 CAATZ`
+- License: MIT License
+
+ECU Map Studio carries the same complete MIT notice retained immediately above for the MS41 Flasher
+reference. That copyright and permission notice applies independently to the adapted ECU Map Studio
+material.
+
 ## JetBrains Mono
 
 The JetBrains Mono font files under `resources/fonts/` are licensed under the SIL Open Font License

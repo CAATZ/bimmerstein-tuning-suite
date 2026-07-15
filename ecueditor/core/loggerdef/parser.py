@@ -1,5 +1,6 @@
 from __future__ import annotations
 import re
+from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -47,10 +48,7 @@ def _module_address(proto: ET.Element) -> int:
             seen_first = True
     return fallback or 0x12
 
-def _conversion(ep: ET.Element) -> Conversion | None:
-    conv = ep.find("conversions/conversion")
-    if conv is None:
-        return None
+def _conversion(conv: ET.Element) -> Conversion:
     def _f(name: str) -> float | None:
         v = conv.get(name)
         return float(v) if v not in (None, "") else None
@@ -62,6 +60,10 @@ def _conversion(ep: ET.Element) -> Conversion | None:
         endian=conv.get("endian"),
         gauge_min=_f("gauge_min"), gauge_max=_f("gauge_max"), gauge_step=_f("gauge_step"),
     )
+
+
+def _conversions(ep: ET.Element) -> tuple[Conversion, ...]:
+    return tuple(_conversion(conv) for conv in ep.findall("conversions/conversion"))
 
 def _channel_address(ad: ET.Element) -> ChannelAddress:
     bit = ad.get("bit")
@@ -78,11 +80,13 @@ def _channel(ep: ET.Element) -> LoggerChannel:
         addrs = tuple(_channel_address(ad) for ad in ecu.findall("address"))
         ecus.append((ids, addrs))
     gs = ep.get("groupsize")
+    conversions = _conversions(ep)
     return LoggerChannel(
         id=ep.get("id") or "", name=ep.get("name") or "", desc=ep.get("desc"),
         group=ep.get("group"), subgroup=ep.get("subgroup"),
         groupsize=int(gs) if gs else None,
-        ecus=tuple(ecus), conversion=_conversion(ep),
+        ecus=tuple(ecus), conversion=conversions[0] if conversions else None,
+        conversions=conversions,
     )
 
 @dataclass
@@ -107,20 +111,31 @@ class LoggerDefinition:
                 return c
         raise KeyError(channel_id)
 
-def parse_logger_definition(path: str | Path) -> LoggerDefinition:
+def parse_logger_definition(
+    path: str | Path,
+    *,
+    supported_protocol_ids: Collection[str] | None = None,
+) -> LoggerDefinition:
     raw = Path(path).read_text(encoding="utf-8", errors="replace")
     raw = re.sub(r"<!DOCTYPE.*?\]>", "", raw, flags=re.DOTALL)
     try:
         root = ET.fromstring(raw)              # comments (commented ecuparams) are dropped here
     except ET.ParseError as exc:
         raise DefinitionError(f"cannot parse logger def {path}: {exc}") from exc
-    ds2 = next((p for p in root.iter("protocol") if p.get("id") == "DS2"), None)
-    if ds2 is None:
-        raise DefinitionError("no DS2 <protocol> in logger definition")
-    channels = [_channel(ep) for ep in ds2.iter("ecuparam")]
+    supported = set(supported_protocol_ids) if supported_protocol_ids is not None else {"DS2"}
+    protocols = list(root.iter("protocol"))
+    selected = next((p for p in protocols if (p.get("id") or "") in supported), None)
+    if selected is None:
+        available = sorted({p.get("id") or "<missing id>" for p in protocols})
+        raise DefinitionError(
+            "logger definition has no supported <protocol>; available: "
+            + (", ".join(available) if available else "none")
+        )
+    protocol_id = selected.get("id") or ""
+    channels = [_channel(ep) for ep in selected.iter("ecuparam")]
     return LoggerDefinition(
-        protocol_id="DS2",
-        serial_params=_serial_params(ds2),
-        module_address=_module_address(ds2),
+        protocol_id=protocol_id,
+        serial_params=_serial_params(selected),
+        module_address=_module_address(selected),
         channels=channels,
     )

@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Sequence
+from typing import Sequence, cast
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QGridLayout, QScrollArea, QVBoxLayout, QWidget
@@ -62,15 +62,19 @@ class DashboardTab(QWidget):
         if self._settings is None:
             return
         spec = self._settings.warn_thresholds.get(cid)
-        if spec is not None:
+        if spec is not None and len(spec) == 2:
             mode, value = spec
-            g.set_threshold(mode, value)
+            if isinstance(mode, str) and isinstance(value, (int, float)):
+                g.set_threshold(mode, float(value))
 
     def set_channels(self, channels: Sequence[LoggerChannel]) -> None:
         while self._grid.count():
             item = self._grid.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            if item is None:
+                continue
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
         self.gauges.clear()
         self._channels = {ch.id: ch for ch in channels}
         self._current_columns = self._columns_for_width(self._scroll.viewport().width())
@@ -150,7 +154,9 @@ class DashboardTab(QWidget):
         if old is None or ch is None:
             return
         idx = self._grid.indexOf(old)
-        row, col, rspan, cspan = self._grid.getItemPosition(idx)
+        row, col, rspan, cspan = cast(
+            tuple[int, int, int, int], self._grid.getItemPosition(idx)
+        )
         self._grid.removeWidget(old)
         old.deleteLater()
         g = make_gauge(self._style_for(cid), ch.name, ch.conversion)
@@ -182,6 +188,8 @@ class DashboardTab(QWidget):
     def cycle_gauge_style(self) -> None:
         for cid in list(self.gauges):
             cur = self._style_for(cid)
+            if cur not in STYLES:
+                cur = STYLES[0]
             nxt = STYLES[(STYLES.index(cur) + 1) % len(STYLES)]
             self._styles[cid] = nxt
             self._rebuild_gauge(cid)

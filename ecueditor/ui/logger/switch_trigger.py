@@ -19,6 +19,7 @@ class SwitchTriggeredLogger:
         self._threshold = 0.5
         self._absolute = False
         self._infix = ""
+        self._trigger_active = False
 
     def channels(self) -> list[LoggerChannel]:
         """Current channel set from the provider (fresh each call -- reflects live selection)."""
@@ -48,8 +49,10 @@ class SwitchTriggeredLogger:
                 if active and not self._session.is_active:
                     self._session.start(self._channels_provider(), absolute_time=self._absolute,
                                         name_infix=self._infix)
-                elif not active and self._session.is_active:
+                    self._trigger_active = True
+                elif not active and self._session.is_active and self._trigger_active:
                     self._session.stop()
+                    self._trigger_active = False
         # single write point: record iff the session is (still / now) active
         if self._session.is_active:
             self._session.on_sample(sample)

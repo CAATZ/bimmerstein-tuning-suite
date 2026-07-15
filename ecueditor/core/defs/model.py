@@ -54,7 +54,7 @@ class ScaleDef:      # scaling as declared on a table/axis (pre-resolution)
 class AxisDef:
     role: AxisRole
     storage_address: int | None          # hex; None for static or inherited
-    storage_type: str | None             # uint8/int8/uint16/int16/uint32/int32/float
+    storage_type: str | None             # integer types; parsed "float" is rejected by integer-backed ROM cells
     endian: str | None
     size: int | None                     # length (from parent dimension if None)
     scale: ScaleDef | None

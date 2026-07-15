@@ -7,7 +7,7 @@ from __future__ import annotations
 import time
 from typing import Callable
 from ecueditor.core.comms.transport.base import SerialParams
-from ecueditor.core.errors import CommsTimeout
+from ecueditor.core.errors import CommsError, CommsTimeout
 
 ECHO_READ_MS = 5   # per-read budget while consuming half-duplex TX echo (FT232 ~1-2 ms latency timer)
 
@@ -26,6 +26,7 @@ class HalfDuplexTransport:
         self._baud = 9600
         self._bits_per_char = 12                 # 8E2 default; recomputed in open()
         self._is_open = False
+        self._pending_rx = bytearray()
 
     # -- subclass primitives -------------------------------------------------
     def _open_device(self, port: str, params: SerialParams) -> None: raise NotImplementedError
@@ -41,17 +42,34 @@ class HalfDuplexTransport:
         self._baud = params.baud
         # bits/char = start + data + (parity?) + stop  (8E2 => 12)
         self._bits_per_char = 1 + params.databits + (0 if params.parity == "none" else 1) + params.stopbits
-        self._open_device(port, params)
+        self._pending_rx.clear()
+        try:
+            self._open_device(port, params)
+        except CommsError:
+            self._close_partial_open()
+            raise
+        except Exception as exc:  # noqa: BLE001 - normalize optional driver errors
+            self._close_partial_open()
+            raise CommsError(f"failed to open {self.name} transport on {port!r}: {exc}") from exc
         self._is_open = True
 
     def write(self, data: bytes) -> None:
         data = bytes(data)
-        self._raw_write(data)
-        self._raw_flush()                        # drain TX to the wire before reading echo
-        if self._strip_echo:
-            # Sleep the exact TX time so a present echo is fully on the wire, then discard it.
-            self._sleep(len(data) * self._bits_per_char / self._baud)
-            self._read_upto(len(data), ECHO_READ_MS)   # tolerant: short is fine (echo-suppressing adapter)
+        try:
+            self._raw_write(data)
+            self._raw_flush()                    # drain TX to the wire before reading echo
+            if self._strip_echo:
+                # Sleep the exact TX time so a present echo is fully on the wire.  Discard only
+                # an exact, complete match; a no-echo adapter may already expose the ECU reply
+                # during this probe, and those bytes must be preserved for read().
+                self._sleep(len(data) * self._bits_per_char / self._baud)
+                probe = self._read_raw_upto(len(data), ECHO_READ_MS)
+                if probe != data:
+                    self._pending_rx.extend(probe)
+        except CommsError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - normalize optional driver errors
+            raise CommsError(f"{self.name} write failed: {exc}") from exc
 
     def read(self, n: int, timeout_ms: int) -> bytes:
         got = self._read_upto(n, timeout_ms)
@@ -60,6 +78,19 @@ class HalfDuplexTransport:
         return got
 
     def _read_upto(self, n: int, timeout_ms: int) -> bytes:
+        buf = bytearray(self._pending_rx[:n])
+        del self._pending_rx[:len(buf)]
+        if len(buf) >= n:
+            return bytes(buf)
+        try:
+            buf.extend(self._read_raw_upto(n - len(buf), timeout_ms))
+        except CommsError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - normalize optional driver errors
+            raise CommsError(f"{self.name} read failed: {exc}") from exc
+        return bytes(buf)
+
+    def _read_raw_upto(self, n: int, timeout_ms: int) -> bytes:
         self._set_read_timeout(timeout_ms)
         buf = bytearray()
         while len(buf) < n:
@@ -70,12 +101,27 @@ class HalfDuplexTransport:
         return bytes(buf)
 
     def flush_input(self) -> None:
-        self._raw_reset_input()
+        self._pending_rx.clear()
+        try:
+            self._raw_reset_input()
+        except Exception as exc:  # noqa: BLE001 - normalize optional driver errors
+            raise CommsError(f"{self.name} input flush failed: {exc}") from exc
 
     def close(self) -> None:
         if self._is_open:
+            try:
+                self._close_device()
+            finally:
+                self._is_open = False
+                self._pending_rx.clear()
+
+    def _close_partial_open(self) -> None:
+        try:
             self._close_device()
-            self._is_open = False
+        except Exception:  # noqa: BLE001 - preserve the original open failure
+            pass
+        self._is_open = False
+        self._pending_rx.clear()
 
     @property
     def is_open(self) -> bool:
