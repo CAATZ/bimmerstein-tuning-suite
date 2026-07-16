@@ -1,14 +1,41 @@
-# BimmerStein Tuning Suite
+<p align="center">
+  <img src="resources/icons/app.svg" alt="BimmerStein Tuning Suite logo" width="160">
+</p>
 
-**ECU Calibration and Data Logging**
+<h1 align="center">BimmerStein Tuning Suite</h1>
 
-BimmerStein Tuning Suite is a Windows desktop application for editing ECU calibration files,
-viewing live data, recording logs, and performing virtual-dyno analysis. Development currently
-focuses on the BMW MS41 ECU, while the definition and plugin architecture is designed to support
-additional platforms.
+<p align="center"><strong>ECU Calibration and Data Logging</strong></p>
+
+<p align="center">
+  A focused Windows workspace for calibration editing, live data, logging, and analysis.
+</p>
+
+<p align="center">
+  <a href="https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b3"><strong>Download Beta 3</strong></a>
+  &nbsp;&middot;&nbsp;
+  <a href="output/pdf/BimmerStein-Tuning-Suite-User-Manual.pdf">User Manual</a>
+  &nbsp;&middot;&nbsp;
+  <a href="https://github.com/CAATZ/bimmerstein-tuning-suite/issues">Issues &amp; Feedback</a>
+</p>
+
+<p align="center">
+  <code>Windows x64</code>&nbsp;&nbsp;
+  <code>BMW MS41 focused</code>&nbsp;&nbsp;
+  <code>GPL-2.0-or-later</code>
+</p>
+
+---
+
+BimmerStein Tuning Suite edits ECU calibration files, displays live data, records logs, and
+performs virtual-dyno analysis. Development currently focuses on the BMW MS41 ECU, while the
+definition and plugin architecture is designed to support additional platforms.
 
 This is an independent project. It supports RomRaider-compatible definition formats and familiar
 calibration workflows, but it is not a Git fork of RomRaider.
+
+<p align="center">
+  <img src="manual/images/editor-overview.png" alt="BimmerStein Tuning Suite editor workspace" width="920">
+</p>
 
 ## Beta release
 
