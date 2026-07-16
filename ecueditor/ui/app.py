@@ -36,6 +36,8 @@ def build_app(services: AppServices, argv: list[str] | None = None) -> QApplicat
     app.setProperty("ecueditor_theme_manager", services.theme_manager)
     from ecueditor.ui.theme import apply_theme
     apply_theme(app, getattr(services.settings, "theme", "dark") if services.settings else "dark")
+    from ecueditor.ui.design.icons import icon
+    app.setWindowIcon(icon("app"))
     from ecueditor.ui.main_window import MainWindow
     window = MainWindow(services)
     app.setProperty("ecueditor_window", window)   # keep a strong reference alive

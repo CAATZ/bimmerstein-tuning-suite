@@ -12,9 +12,9 @@ calibration workflows, but it is not a Git fork of RomRaider.
 
 ## Beta release
 
-The current public beta is **0.1.0 Beta 2** (`0.1.0b2`):
+The current public beta is **0.1.0 Beta 3** (`0.1.0b3`):
 
-[Download BimmerStein Tuning Suite 0.1.0 Beta 2](https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b2)
+[Download BimmerStein Tuning Suite 0.1.0 Beta 3](https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b3)
 
 The release provides:
 

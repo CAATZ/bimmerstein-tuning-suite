@@ -1,17 +1,17 @@
 #ifndef AppVersion
-  #define AppVersion "0.1.0b2"
+  #define AppVersion "0.1.0b3"
 #endif
 #ifndef AppDisplayVersion
-  #define AppDisplayVersion "0.1.0 Beta 2"
+  #define AppDisplayVersion "0.1.0 Beta 3"
 #endif
 #ifndef AppNumericVersion
-  #define AppNumericVersion "0.1.0.2"
+  #define AppNumericVersion "0.1.0.3"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\.tmp\release-build\dist\ecueditor"
 #endif
 #ifndef OutputDir
-  #define OutputDir "..\release\0.1.0b2"
+  #define OutputDir "..\release\0.1.0b3"
 #endif
 
 [Setup]
@@ -34,7 +34,7 @@ DisableProgramGroupPage=yes
 OutputDir={#OutputDir}
 OutputBaseFilename=BimmerStein-Tuning-Suite-{#AppVersion}-Windows-x64-Setup
 SetupIconFile=..\resources\icons\app.ico
-UninstallDisplayIcon={app}\BimmerStein-Tuning-Suite.exe
+UninstallDisplayIcon={app}\BimmerStein-Tuning-Suite-{#AppVersion}.ico
 LicenseFile={#SourceDir}\LICENSE
 InfoBeforeFile={#SourceDir}\RELEASE_NOTES.md
 Compression=lzma2/ultra64
@@ -43,16 +43,18 @@ WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
 SetupLogging=yes
+ChangesAssociations=yes
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SourceDir}\resources\icons\app.ico"; DestDir: "{app}"; DestName: "BimmerStein-Tuning-Suite-{#AppVersion}.ico"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\BimmerStein Tuning Suite"; Filename: "{app}\BimmerStein-Tuning-Suite.exe"; WorkingDir: "{app}"
-Name: "{autodesktop}\BimmerStein Tuning Suite"; Filename: "{app}\BimmerStein-Tuning-Suite.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{group}\BimmerStein Tuning Suite"; Filename: "{app}\BimmerStein-Tuning-Suite.exe"; WorkingDir: "{app}"; IconFilename: "{app}\BimmerStein-Tuning-Suite-{#AppVersion}.ico"
+Name: "{autodesktop}\BimmerStein Tuning Suite"; Filename: "{app}\BimmerStein-Tuning-Suite.exe"; WorkingDir: "{app}"; IconFilename: "{app}\BimmerStein-Tuning-Suite-{#AppVersion}.ico"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\BimmerStein-Tuning-Suite.exe"; Description: "Launch BimmerStein Tuning Suite"; Flags: nowait postinstall skipifsilent

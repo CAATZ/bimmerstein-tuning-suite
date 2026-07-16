@@ -1,14 +1,19 @@
-# BimmerStein Tuning Suite 0.1.0 Beta 2
+# BimmerStein Tuning Suite 0.1.0 Beta 3
 
 **ECU Calibration and Data Logging**
 
 Released 2026-07-15
 
-Beta 2 is a focused editor, Map Studio, reliability, and presentation update. It remains beta
-software and is intended for testing and feedback.
+Beta 3 is a branding and Windows shortcut hotfix built on the editor, Map Studio, reliability, and
+presentation improvements introduced in Beta 2. It remains beta software and is intended for
+testing and feedback.
 
 ## Highlights
 
+- A new circular red-and-black BS identity is used consistently by the application, title bars,
+  Windows executable, installer, shortcuts, and user manual.
+- Versioned installed icon files and explicit shortcut icon targets prevent Windows Explorer from
+  retaining obsolete artwork after an in-place upgrade.
 - Integrated Map Studio for curves and two-axis maps, including padded-region detection, expansion
   to the opening table's destination grid, Linear/Bilinear and shape-preserving PCHIP interpolation,
   and one bounded Limited-linear extrapolation method.
@@ -19,8 +24,8 @@ software and is intended for testing and feedback.
 - Harmonized 3D surfaces, axis ordering and flip controls, natural orbit/pan/zoom interaction, live
   selected-cell readouts, and safer visualization teardown.
 - Correct multi-ROM targeting for close, Save As, compare, and reload-from-disk workflows.
-- A new original dark/red BimmerStein application mark, including high-DPI runtime and Windows icon
-  assets.
+- High-DPI vector and multi-resolution Windows icon assets keep the product mark sharp from compact
+  title bars through large shortcut views.
 
 ## Reliability and safety
 

@@ -34,7 +34,7 @@ hiddenimports += [
 # moved to rendering the QSS from design tokens at runtime (Task 5/8), so PySide6.QtSvg is a
 # hiddenimport above (icons are rendered via QtSvg, not baked PNGs). Definition XMLs still are NOT
 # bundled: definitions are user-supplied (settings.definition_paths / ECUEDITOR_DEFS / the
-# force-load picker). The collect_data_files qss/png/svg globs and the conditional app.ico below
+# force-load picker). The collect_data_files qss/png/svg globs and the required app.ico below
 # are future-proofing for asset types not currently under ecueditor/ itself (resources/ already
 # covers icons/fonts via the rglob).
 datas = collect_data_files("ecueditor", includes=["**/*.qss", "**/*.png", "**/*.svg"])
