@@ -45,6 +45,23 @@ def _load_root(path: str | Path) -> ET.Element:
         raise DefinitionError(f"cannot parse {path}: {exc}") from exc
 
 
+def _romid_of_node(rom: ET.Element) -> RomId:
+    rid = rom.find("romid")
+    if rid is None:
+        raise DefinitionError("<rom> has no <romid>")
+    mm = rid.find("memmodel")
+    return RomId(
+        xmlid=rid.findtext("xmlid") or "",
+        internal_id_address=_hexint(rid.findtext("internalidaddress")),
+        internal_id_string=rid.findtext("internalidstring"),
+        ecuid=rid.findtext("ecuid"),
+        filesize=_filesize(rid.findtext("filesize")),
+        memmodel=mm.text if mm is not None else None,
+        memmodel_endian=mm.get("endian") if mm is not None else None,
+        no_ram_offset=rid.find("noramoffset") is not None,
+    )
+
+
 class DefinitionDocument:
     def __init__(self, path: str | Path, root: ET.Element) -> None:
         self.path = Path(path)
@@ -55,41 +72,51 @@ class DefinitionDocument:
     def rom_ids(self) -> list[RomId]:
         out: list[RomId] = []
         for rom in self._rom_nodes:
-            rid = rom.find("romid")
-            if rid is None: continue
-            mm = rid.find("memmodel")
-            out.append(RomId(
-                xmlid=rid.findtext("xmlid") or "",
-                internal_id_address=_hexint(rid.findtext("internalidaddress")),
-                internal_id_string=rid.findtext("internalidstring"),
-                ecuid=rid.findtext("ecuid"),
-                filesize=_filesize(rid.findtext("filesize")),
-                memmodel=mm.text if mm is not None else None,
-                memmodel_endian=mm.get("endian") if mm is not None else None,
-                no_ram_offset=rid.find("noramoffset") is not None,
-            ))
+            if rom.find("romid") is not None:
+                out.append(_romid_of_node(rom))
         return out
 
-    def find_matching(self, image: bytes) -> tuple[RomId, MemoryModel] | None:
+    def find_matches(self, image: bytes) -> list[tuple[RomId, MemoryModel]]:
+        """Return every framing-compatible RomId match in document order."""
         size = len(image)
+        out: list[tuple[RomId, MemoryModel]] = []
         for r in self.rom_ids:
             if not image_size_compatible(r, size):
                 continue
-            probe = probe_offset(r, size)              # framing-correct probe location (fo() or raw)
+            probe = probe_offset(r, size)
             if r.matches(image, probe=probe):
-                return r, model_for_match(r, size)
-        return None
+                out.append((r, model_for_match(r, size)))
+        return out
 
-    def resolve(self, xmlid: str) -> "RomDefinition":
-        from ecueditor.core.defs.inheritance import resolve_rom
-        by_xid: dict[str, list] = {}
+    def find_matching(self, image: bytes) -> tuple[RomId, MemoryModel] | None:
+        matches = self.find_matches(image)
+        return matches[0] if matches else None
+
+    def _nodes_by_xmlid(self) -> dict[str, list[ET.Element]]:
+        by_xid: dict[str, list[ET.Element]] = {}
         for rom in self._rom_nodes:
             rid = rom.find("romid")
             xid = rid.findtext("xmlid") if rid is not None else None
-            if xid: by_xid.setdefault(xid, []).append(rom)
+            if xid:
+                by_xid.setdefault(xid, []).append(rom)
+        return by_xid
+
+    def resolve(self, xmlid: str) -> "RomDefinition":
+        from ecueditor.core.defs.inheritance import resolve_rom
+        by_xid = self._nodes_by_xmlid()
         if xmlid not in by_xid:
             raise DefinitionError(f"no <rom> with xmlid {xmlid!r}")
         return resolve_rom(by_xid, xmlid)
+
+    def resolve_match(self, romid: RomId) -> "RomDefinition":
+        """Resolve the exact matched node, including duplicate xmlid framing variants."""
+        from ecueditor.core.defs.inheritance import resolve_rom_element
+
+        by_xid = self._nodes_by_xmlid()
+        for rom in by_xid.get(romid.xmlid, ()):
+            if _romid_of_node(rom) == romid:
+                return resolve_rom_element(by_xid, rom)
+        raise DefinitionError(f"matched definition {romid.xmlid!r} is no longer present")
 
 
 def parse_definition_file(path: str | Path) -> DefinitionDocument:

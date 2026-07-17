@@ -4,7 +4,9 @@ from collections import namedtuple
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QLineEdit, QListWidget, QListWidgetItem
 from PySide6.QtCore import Qt
 
-PaletteEntry = namedtuple("PaletteEntry", "rom name category description label")
+PaletteEntry = namedtuple(
+    "PaletteEntry", "rom name category description label table", defaults=(None,)
+)
 
 
 def fuzzy_score(query: str, text: str) -> float | None:
@@ -63,7 +65,7 @@ class CommandPalette(QDialog):
             return
         e = item.data(Qt.ItemDataRole.UserRole)
         self.accept()
-        self._on_open(e.rom, e.name)
+        self._on_open(e.rom, e.table if e.table is not None else e.name)
 
     def _refilter(self, text: str) -> None:
         scored = []

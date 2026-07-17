@@ -532,7 +532,10 @@ class MainWindow(QMainWindow):
             rom = self._active_rom()
         self.checksum_chips.set_report(rom.checksum_report() if rom is not None else None)
         if rom is not None:
-            self.xmlid_chip.setText(rom.definition.romid.xmlid); self.xmlid_chip.show()
+            xmlids = " / ".join(dict.fromkeys(
+                section.definition.romid.xmlid for section in rom.sections
+            ))
+            self.xmlid_chip.setText(xmlids); self.xmlid_chip.show()
         else:
             self.xmlid_chip.hide()
         level = getattr(self._services.settings, "user_level", 5) if self._services.settings else 5
@@ -572,7 +575,7 @@ class MainWindow(QMainWindow):
                 # save() moved the revert point -- clear the tab dirty-dot to match (H7)...
                 self.documents.set_document_dirty(doc, table.is_changed())
                 # ...and the tree leaf's dirty dot to match (Task 15).
-                self.rom_tree.set_dirty(rom, table.name, table.is_changed())
+                self.rom_tree.set_dirty(rom, table, table.is_changed())
             if after_reload:
                 handle_reload = getattr(doc, "handle_rom_reloaded", None)
                 if callable(handle_reload):
@@ -601,7 +604,8 @@ class MainWindow(QMainWindow):
                 "mapstudio": " (Map Studio)",
                 "surface": " (3D)",
             }.get(kind, "")
-            self.documents.set_document_title(doc, f"{table.name}{qualifier} — {label}")
+            display_name = self._table_display_name(rom, table)
+            self.documents.set_document_title(doc, f"{display_name}{qualifier} — {label}")
 
     def save_active_rom(self, *, save_as: bool) -> None:
         from PySide6.QtWidgets import QFileDialog, QMessageBox
@@ -826,19 +830,22 @@ class MainWindow(QMainWindow):
 
     # --- table sub-windows -----------------------------------------------------
     def _on_table_activated(self, rom, table) -> None:
-        self.open_table(rom, table.name)
+        self.open_table(rom, table)
 
-    def open_table(self, rom, name: str) -> None:
+    def open_table(self, rom, table_or_name) -> None:
         from ecueditor.ui.editor.table_frame import TableDocument
         from ecueditor.ui.editor.rom_tree import icon_name_for_table
         from ecueditor.ui.design.icons import icon
         from pathlib import Path
-        key = (id(rom), name)
+        table = rom.table(table_or_name) if isinstance(table_or_name, str) else table_or_name
+        section, name = rom.table_key(table)
+        key = (id(rom), section, name)
         existing = self._open_frames.get(key)
         if existing is not None and existing in self.documents.documents():
             self.documents.set_active_document(existing); return
         label = Path(rom.path).name if rom.path else rom.definition.romid.xmlid
-        doc = TableDocument(rom, rom.table(name), f"{label}: {name}",
+        display_name = self._table_display_name(rom, table)
+        doc = TableDocument(rom, table, f"{label}: {display_name}",
                             roms_provider=lambda: list(self.rom_tree._roms))
         # Decorate the document BEFORE add_document makes it active and emits the activation
         # signal.  Doing this afterward left the shared 3D action disabled until a second table
@@ -858,12 +865,16 @@ class MainWindow(QMainWindow):
                 _apply_settings_to_grid(grid, self._services.settings)
         # Include the ROM so identically named tables from two images remain unambiguous when
         # the internal windows are tiled or cascaded.
-        tab_icon = icon(icon_name_for_table(rom.definition.tables[name]))
+        tab_icon = icon(icon_name_for_table(table.definition))
         workspace_kind = "utility" if doc.grid is None or doc.table.shape() == (1, 1) else "grid"
         self.documents.add_document(
-            doc, f"{name} — {label}", icon=tab_icon, workspace_kind=workspace_kind
+            doc, f"{display_name} — {label}", icon=tab_icon, workspace_kind=workspace_kind
         )
         self._open_frames[key] = doc
+        if section == rom.sections[0].key:
+            # Keep the original private registry key for single/default-section callers and
+            # tests. Multi-section-safe routing always uses the canonical key above.
+            self._open_frames[(id(rom), name)] = doc
 
         frame = getattr(doc, "frame", None)
         if frame is not None and getattr(frame, "legend", None) is not None:
@@ -897,6 +908,19 @@ class MainWindow(QMainWindow):
                 body.edited.connect(lambda d=doc: self._on_document_edited(d))
         self._rebind_open_3d_view(doc)
 
+    @staticmethod
+    def _table_display_name(rom, table) -> str:
+        if len(rom.sections) == 1:
+            return table.name
+        section_key, _name = rom.table_key(table)
+        section = next(item for item in rom.sections if item.key == section_key)
+        return f"{table.name} [{section.label}]"
+
+    @staticmethod
+    def _table_frame_key(rom, table, *qualifier) -> tuple[object, ...]:
+        section, name = rom.table_key(table)
+        return (id(rom), section, name, *qualifier)
+
     def _on_grid_data_changed(self, doc, roles=()) -> None:
         """Legacy edit routing that rejects palette and other paint-only changes."""
         if roles and not any(
@@ -908,7 +932,7 @@ class MainWindow(QMainWindow):
 
     def _open_map_studio(self, doc) -> None:
         """Open one native Map Studio document for the source table."""
-        key = (id(doc.rom), doc.table.name, "mapstudio")
+        key = self._table_frame_key(doc.rom, doc.table, "mapstudio")
         existing = self._open_frames.get(key)
         if existing is not None and existing in self.documents.documents():
             self.documents.set_active_document(existing)
@@ -928,9 +952,10 @@ class MainWindow(QMainWindow):
             lambda proposal, target=studio: self._apply_map_studio(target, proposal)
         )
         label = Path(doc.rom.path).name if doc.rom.path else doc.rom.definition.romid.xmlid
+        display_name = self._table_display_name(doc.rom, doc.table)
         self.documents.add_document(
             studio,
-            f"{doc.table.name} (Map Studio) — {label}",
+            f"{display_name} (Map Studio) — {label}",
             icon=icon("interpolate"),
             workspace_kind="mapstudio",
         )
@@ -938,10 +963,10 @@ class MainWindow(QMainWindow):
 
     def _apply_map_studio(self, studio, proposal) -> None:
         """Commit a Studio proposal through the opening table's normal edit model."""
-        key = (id(studio.rom), studio.table.name)
+        key = self._table_frame_key(studio.rom, studio.table)
         source = self._open_frames.get(key)
         if source is None or source not in self.documents.documents():
-            self.open_table(studio.rom, studio.table.name)
+            self.open_table(studio.rom, studio.table)
             source = self._open_frames.get(key)
         if source is None or source.grid is None:
             return
@@ -954,7 +979,7 @@ class MainWindow(QMainWindow):
         self.documents.set_active_document(studio)
 
     def _open_3d_view(self, doc) -> None:
-        key = (id(doc.rom), doc.table.name, "3d")
+        key = self._table_frame_key(doc.rom, doc.table, "3d")
         existing = self._open_frames.get(key)
         if existing is not None and existing in self.documents.documents():
             existing.bind_source_grid(doc.grid)
@@ -973,8 +998,9 @@ class MainWindow(QMainWindow):
         from ecueditor.ui.design.icons import icon
         from pathlib import Path
         label = Path(doc.rom.path).name if doc.rom.path else doc.rom.definition.romid.xmlid
+        display_name = self._table_display_name(doc.rom, doc.table)
         self.documents.add_document(
-            view, f"{doc.table.name} (3D) — {label}", icon=icon("cube"),
+            view, f"{display_name} (3D) — {label}", icon=icon("cube"),
             workspace_kind="surface",
         )
         self._open_frames[key] = view
@@ -984,7 +1010,7 @@ class MainWindow(QMainWindow):
         """Reconnect a surviving 3D document when its table grid is reopened."""
         if not hasattr(self, "_open_frames"):
             return
-        key = (id(doc.rom), doc.table.name, "3d")
+        key = self._table_frame_key(doc.rom, doc.table, "3d")
         view = self._open_frames.get(key)
         if view is not None and view in self.documents.documents():
             view.bind_source_grid(doc.grid)
@@ -1026,7 +1052,7 @@ class MainWindow(QMainWindow):
                     other_rom = getattr(other, "rom", None)
                     if other_rom is None:
                         continue
-                    primary_key = (id(other_rom), other_table.name)
+                    primary_key = self._table_frame_key(other_rom, other_table)
                     if self._open_frames.get(primary_key) is other:
                         self.documents.set_document_dirty(other, other_table.is_changed())
             finally:
@@ -1038,9 +1064,9 @@ class MainWindow(QMainWindow):
             if grid is not None:
                 grid.model().refresh_compare_reference(aliases)
         for table in aliases:
-            self.rom_tree.set_dirty(doc.rom, table.name, table.is_changed())
+            self.rom_tree.set_dirty(doc.rom, table, table.is_changed())
         self.documents.set_document_dirty(doc, doc.table.is_changed())
-        self.rom_tree.set_dirty(doc.rom, doc.table.name, doc.table.is_changed())
+        self.rom_tree.set_dirty(doc.rom, doc.table, doc.table.is_changed())
         self._update_window_title()
 
     def _on_active_document_changed(self, doc) -> None:
@@ -1102,13 +1128,23 @@ class MainWindow(QMainWindow):
         entries = []
         for rom in self.rom_tree.roms():
             label = Path(rom.path).name if rom.path else rom.definition.romid.xmlid
-            for name, tdef in rom.definition.tables.items():
-                if getattr(tdef, "user_level", 1) > level:
-                    continue
-                entries.append(PaletteEntry(rom=rom, name=name, category=tdef.category or "",
-                                            description=tdef.description or "",
-                                            label=f"{name} — {tdef.category or '?'} · {label}"))
-        pal = CommandPalette(entries, on_open=lambda rom, name: self.open_table(rom, name),
+            for section in rom.sections:
+                for name, tdef in rom.section_definitions(section.key).items():
+                    if getattr(tdef, "user_level", 1) > level:
+                        continue
+                    table = rom.table(name, section=section.key)
+                    section_text = f" · {section.label}" if len(rom.sections) > 1 else ""
+                    entries.append(PaletteEntry(
+                        rom=rom,
+                        name=name,
+                        category=tdef.category or "",
+                        description=tdef.description or "",
+                        label=(
+                            f"{name} — {tdef.category or '?'}{section_text} · {label}"
+                        ),
+                        table=table,
+                    ))
+        pal = CommandPalette(entries, on_open=lambda rom, table: self.open_table(rom, table),
                              parent=self)
         pal.move(self.mapToGlobal(self.rect().center()) - pal.rect().center())
         pal.exec()

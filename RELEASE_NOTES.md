@@ -1,42 +1,44 @@
-# BimmerStein Tuning Suite 0.1.0 Beta 3
+# BimmerStein Tuning Suite 0.1.0 Beta 4
 
 **ECU Calibration and Data Logging**
 
-Released 2026-07-15
+Released 2026-07-17
 
-Beta 3 is a branding and Windows shortcut hotfix built on the editor, Map Studio, reliability, and
-presentation improvements introduced in Beta 2. It remains beta software and is intended for
-testing and feedback.
+Beta 4 expands full-image editing beyond the original MS41 framing while preserving conservative
+checksum and definition-matching rules. It remains beta software intended for testing and feedback.
 
 ## Highlights
 
-- A new circular red-and-black BS identity is used consistently by the application, title bars,
-  Windows executable, installer, shortcuts, and user manual.
-- Versioned installed icon files and explicit shortcut icon targets prevent Windows Explorer from
-  retaining obsolete artwork after an in-place upgrade.
-- Integrated Map Studio for curves and two-axis maps, including padded-region detection, expansion
-  to the opening table's destination grid, Linear/Bilinear and shape-preserving PCHIP interpolation,
-  and one bounded Limited-linear extrapolation method.
-- Editable Source and Result workspaces with copy, paste, adjustments, anomaly detection, repair,
-  smoothing, local undo/redo, Changes review, safety reports, and transactional apply-to-ROM.
-- Responsive table sizing and coarse axis labels across the main editor and Map Studio, with
-  improved selection, zoom/fit stability, edited-cell indicators, and Rainbow table coloring.
-- Harmonized 3D surfaces, axis ordering and flip controls, natural orbit/pan/zoom interaction, live
-  selected-cell readouts, and safer visualization teardown.
-- Correct multi-ROM targeting for close, Save As, compare, and reload-from-disk workflows.
-- High-DPI vector and multi-resolution Windows icon assets keep the product mark sharp from compact
-  title bars through large shortcut views.
+- Full files can show separate **Partial BIN** and **Full BIN** tree sections, keeping the normal
+  calibration tables alongside tables, parameters, and switches that exist only in a full image.
+- Definition-proven linear mappings support paired partial/full RomRaider definitions such as the
+  supplied MS42, MS43, and MS45 family sets. Standalone partial files retain the normal tree.
+- The editor only combines framings when duplicate ROM identities and multiple concrete table
+  addresses establish one consistent in-bounds offset. Ambiguous definitions remain single-section.
+- Editing, undo, aliases, Save, Save As, comparison, table search, and inspection retain each
+  section's own address and endian rules while sharing one working BIN buffer.
+- Reload now validates a combined document against its native Full BIN definition, then resyncs
+  both sections without replacing already-open table or 3D views.
+- Expected typeless RomRaider override stubs are ignored quietly instead of flooding the console;
+  explicitly malformed table types remain visible as warnings.
 
-## Reliability and safety
+## Checksum safety
 
-- ROM save and reload operations are transactional and preserve the active document on failure.
-- Map Studio validates destination shape and axes before applying and rolls back bytes, cells,
-  aliases, and history if an apply callback fails.
-- Logger, protocol, transport, checksum, definition-importer, and analysis-plugin boundaries now
-  isolate malformed plugins and cleanup failures without swallowing user interrupts.
-- Runtime resource discovery works from source, installed wheels, and frozen Windows builds.
-- Release packaging explicitly includes the manual, fonts, icons, plugins, licenses, and required
-  runtime resources while excluding development-only and private files.
+- Native automatic checksum correction remains limited to verified MS41 partial and full framings.
+- A non-MS41 BIN receives no MS41 checksum correction. It saves requested edits byte-for-byte unless
+  its definition or an installed plugin explicitly selects a compatible checksum manager.
+- Always verify saved non-MS41 files with an appropriate family-specific tool before flashing them
+  with separate software.
+
+## Existing editor and logger capabilities
+
+- Integrated Map Studio provides interpolation, limited-linear extrapolation, repair, smoothing,
+  local history, changes review, safety reports, and transactional apply-to-ROM.
+- Responsive calibration tables, 3D surfaces, shared-axis editing, comparison tools, and dockable
+  workspace modes remain available.
+- DS2 live polling, recording, graphs, gauges, dashboards, and virtual-dyno analysis remain part of
+  the beta.
+- Versioned application icons continue to prevent stale Windows shortcut artwork after upgrades.
 
 ## Safety and scope
 
@@ -44,10 +46,11 @@ testing and feedback.
 - BimmerStein Tuning Suite edits files on disk and reads live ECU data. It does not flash or write
   to the ECU.
 - Definition XML files are supplied by the user and are not bundled with the application.
-- Treat this beta as non-production software and verify saved files before using them elsewhere.
+- Treat this beta as non-production software and independently verify every saved file.
 
 ## Known limitations
 
+- Checksum algorithms for non-MS41 ECU families are not yet built in.
 - Multi-byte live-logger channel endianness still benefits from validation against additional real
   capture sessions and ECU versions.
 - Live CAL-ID remains intentionally unavailable until a labeled capture or verified DS2 command

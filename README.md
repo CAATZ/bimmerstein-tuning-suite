@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b3"><strong>Download Beta 3</strong></a>
+  <a href="https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b4"><strong>Download Beta 4</strong></a>
   &nbsp;&middot;&nbsp;
   <a href="output/pdf/BimmerStein-Tuning-Suite-User-Manual.pdf">User Manual</a>
   &nbsp;&middot;&nbsp;
@@ -27,8 +27,8 @@
 ---
 
 BimmerStein Tuning Suite edits ECU calibration files, displays live data, records logs, and
-performs virtual-dyno analysis. Development currently focuses on the BMW MS41 ECU, while the
-definition and plugin architecture is designed to support additional platforms.
+performs virtual-dyno analysis. BMW MS41 remains the byte-verified checksum focus, while
+definition-proven partial/full editing now extends the editor workflow to additional ECU families.
 
 This is an independent project. It supports RomRaider-compatible definition formats and familiar
 calibration workflows, but it is not a Git fork of RomRaider.
@@ -39,9 +39,9 @@ calibration workflows, but it is not a Git fork of RomRaider.
 
 ## Beta release
 
-The current public beta is **0.1.0 Beta 3** (`0.1.0b3`):
+The current public beta is **0.1.0 Beta 4** (`0.1.0b4`):
 
-[Download BimmerStein Tuning Suite 0.1.0 Beta 3](https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b3)
+[Download BimmerStein Tuning Suite 0.1.0 Beta 4](https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b4)
 
 The release provides:
 
@@ -57,6 +57,8 @@ unknown-publisher warning.
 ## Current capabilities
 
 - Open calibration BIN files using user-supplied RomRaider-compatible XML definitions.
+- Show separate **Partial BIN** and **Full BIN** sections when duplicate definition framings prove
+  how the calibration region maps into a full image.
 - Edit scalar values, switches, table values, and table axes.
 - Propagate edits across tables that share the same physical axis data.
 - Copy, paste, interpolate selections, compare, undo, and create revert points.
@@ -78,6 +80,9 @@ unknown-publisher warning.
 - BimmerStein Tuning Suite does **not** flash or write to an ECU. It edits files on disk and reads
   live ECU data.
 - Definition XML files are supplied by the user and are not included with the application.
+- Native checksum correction is currently limited to verified MS41 framings. Other ECU families
+  save requested edits without automatic checksum correction unless an explicit checksum plugin
+  or definition binding is configured.
 - Flashing, Subaru SSM, generic OBD-II/ELM327, J2534, and Bluetooth transports are not implemented.
 
 DS2 live-data polling has been exercised on hardware. Beta testing is still needed across more ECU

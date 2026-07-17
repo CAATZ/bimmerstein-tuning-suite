@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt
 
 _ROM_ROLE = Qt.ItemDataRole.UserRole
 _NAME_ROLE = Qt.ItemDataRole.UserRole + 1
+_SECTION_ROLE = Qt.ItemDataRole.UserRole + 2
 
 class TableChooserDialog(QDialog):
     """Pick a table from a tree of open ROMs (fact base 1.3 JTableChooser)."""
@@ -21,12 +22,20 @@ class TableChooserDialog(QDialog):
         for rom in roms:
             label = Path(rom.path).name if rom.path else rom.definition.romid.xmlid
             root = QTreeWidgetItem([label]); self.tree.addTopLevelItem(root); root.setExpanded(True)
-            for name, tdef in rom.definition.tables.items():
-                leaf = QTreeWidgetItem([name])
-                leaf.setData(0, _ROM_ROLE, rom); leaf.setData(0, _NAME_ROLE, name)
-                root.addChild(leaf)
-                shape = (tdef.size_x or 1, tdef.size_y or 1)
-                self._leaf_shapes.append((leaf, shape))
+            for section in rom.sections:
+                parent = root
+                if len(rom.sections) > 1:
+                    parent = QTreeWidgetItem([section.label])
+                    parent.setExpanded(True)
+                    root.addChild(parent)
+                for name, tdef in rom.section_definitions(section.key).items():
+                    leaf = QTreeWidgetItem([name])
+                    leaf.setData(0, _ROM_ROLE, rom)
+                    leaf.setData(0, _NAME_ROLE, name)
+                    leaf.setData(0, _SECTION_ROLE, section.key)
+                    parent.addChild(leaf)
+                    shape = (tdef.size_x or 1, tdef.size_y or 1)
+                    self._leaf_shapes.append((leaf, shape))
         self.tree.itemDoubleClicked.connect(self._on_double)
         self.show_all = QCheckBox("Show all shapes")
         self.show_all.toggled.connect(self._apply_shape_filter)
@@ -39,16 +48,25 @@ class TableChooserDialog(QDialog):
 
     def _on_double(self, item, _col) -> None:
         if item.data(0, _NAME_ROLE):
-            self.select_table(item.data(0, _ROM_ROLE), item.data(0, _NAME_ROLE)); self.accept()
+            self.select_table(
+                item.data(0, _ROM_ROLE),
+                item.data(0, _NAME_ROLE),
+                section=item.data(0, _SECTION_ROLE),
+            )
+            self.accept()
 
     def _accept(self) -> None:
         it = self.tree.currentItem()
         if it and it.data(0, _NAME_ROLE):
-            self.select_table(it.data(0, _ROM_ROLE), it.data(0, _NAME_ROLE))
+            self.select_table(
+                it.data(0, _ROM_ROLE),
+                it.data(0, _NAME_ROLE),
+                section=it.data(0, _SECTION_ROLE),
+            )
         self.accept()
 
-    def select_table(self, rom, name: str):
-        self._picked = rom.table(name)
+    def select_table(self, rom, name: str, *, section: str | None = None):
+        self._picked = rom.table(name, section=section)
         return self._picked
 
     def picked_table(self):

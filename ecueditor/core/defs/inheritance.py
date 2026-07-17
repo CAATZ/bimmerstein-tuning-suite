@@ -16,7 +16,7 @@ import logging
 from xml.etree import ElementTree as ET
 
 from ecueditor.core.defs.model import RomDefinition, RomId, TableDef, AxisDef, ScaleDef
-from ecueditor.core.defs.parser import _hexint, _dec, _filesize
+from ecueditor.core.defs.parser import _hexint, _dec, _romid_of_node
 from ecueditor.core.errors import DefinitionError
 
 log = logging.getLogger(__name__)
@@ -173,17 +173,9 @@ def _build_axis(a: dict, role: str, parent_size_x: int | None, parent_size_y: in
     )
 
 
-def resolve_tables(by_xid: dict[str, list[ET.Element]], xid: str) -> tuple[dict[str, dict], list[str]]:
-    """Return ({name: merged-attrs}, chain) for the CAL-ID `xid`, merging the chain
-    (most-derived wins per key), axes keyed by ROLE (X/Y). Mirrors ms41def.resolve_tables
-    but additionally accumulates states/bits/description/userlevel/locked/logparam so the
-    frozen dataclasses can be built from this dict in one shot."""
-    ch = chain_for(by_xid, xid)
+def _resolve_table_layers(layers: list[ET.Element]) -> dict[str, dict]:
     eff: dict[str, dict] = {}
-    for layer in ch:
-        rom_el = pick_rom(by_xid, layer)
-        if rom_el is None:
-            continue
+    for rom_el in layers:
         for tbl in rom_el.findall("table"):
             nm = tbl.get("name")
             if not nm:
@@ -220,6 +212,17 @@ def resolve_tables(by_xid: dict[str, list[ET.Element]], xid: str) -> tuple[dict[
                     continue
                 a = e["axes"].setdefault(role, {})
                 _merge_axis(a, ax)
+    return eff
+
+
+def resolve_tables(by_xid: dict[str, list[ET.Element]], xid: str) -> tuple[dict[str, dict], list[str]]:
+    """Return ({name: merged-attrs}, chain) for the CAL-ID `xid`, merging the chain
+    (most-derived wins per key), axes keyed by ROLE (X/Y). Mirrors ms41def.resolve_tables
+    but additionally accumulates states/bits/description/userlevel/locked/logparam so the
+    frozen dataclasses can be built from this dict in one shot."""
+    ch = chain_for(by_xid, xid)
+    layers = [rom_el for layer in ch if (rom_el := pick_rom(by_xid, layer)) is not None]
+    eff = _resolve_table_layers(layers)
     return eff, ch
 
 
@@ -263,54 +266,46 @@ def _build_table(e: dict) -> TableDef:
     )
 
 
-def _checksum_type(by_xid: dict[str, list[ET.Element]], chain: list[str]) -> str | None:
-    """Optional <checksum type="..."> child of the resolved rom, or its base chain
-    (most-derived layer that declares one wins). None when absent (MS41 defs)."""
+def _rom_id_of(rom_el: ET.Element) -> RomId:
+    return _romid_of_node(rom_el)
+
+
+def _checksum_type_for_layers(layers: list[ET.Element]) -> str | None:
     result: str | None = None
-    for layer in chain:
-        rom_el = pick_rom(by_xid, layer)
-        if rom_el is None:
-            continue
+    for rom_el in layers:
         cs = rom_el.find("checksum")
         if cs is not None and cs.get("type") is not None:
             result = cs.get("type")
     return result
 
 
-def _rom_id_of(rom_el: ET.Element) -> RomId:
-    rid = rom_el.find("romid")
-    mm = rid.find("memmodel") if rid is not None else None
-    return RomId(
-        xmlid=rid.findtext("xmlid") or "" if rid is not None else "",
-        internal_id_address=_hexint(rid.findtext("internalidaddress")) if rid is not None else None,
-        internal_id_string=rid.findtext("internalidstring") if rid is not None else None,
-        ecuid=rid.findtext("ecuid") if rid is not None else None,
-        filesize=_filesize(rid.findtext("filesize")) if rid is not None else None,
-        memmodel=mm.text if mm is not None else None,
-        memmodel_endian=mm.get("endian") if mm is not None else None,
-        no_ram_offset=(rid.find("noramoffset") is not None) if rid is not None else False,
-    )
-
-
-def resolve_rom(nodes_by_xmlid: dict[str, list[ET.Element]], xmlid: str) -> RomDefinition:
-    eff, chain = resolve_tables(nodes_by_xmlid, xmlid)
+def resolve_rom_element(
+    nodes_by_xmlid: dict[str, list[ET.Element]], leaf: ET.Element
+) -> RomDefinition:
+    """Resolve one exact leaf element rather than the best variant of its xmlid."""
+    layers = _ancestor_chain(nodes_by_xmlid, leaf)
+    eff = _resolve_table_layers(layers)
     tables: dict[str, TableDef] = {}
+    romid = _rom_id_of(leaf)
     for name, e in eff.items():
         try:
             tables[name] = _build_table(e)
         except DefinitionError as exc:
-            # Mirrors ms41def.py's own tolerance (cmd_list defaults a missing type to "?"
-            # rather than aborting): a stub <table> entry that never picks up a type
-            # anywhere in the chain can't become a valid TableDef, so it is dropped
-            # instead of failing the whole rom resolution (real corpus: the
-            # 'MAF Plausibility Check' stubs in xmlids 41/60).
-            log.warning("dropping table %r while resolving rom %r: %s", name, xmlid, exc)
-            continue
+            # RomRaider definition sets commonly contain address-only override stubs whose
+            # matching base table is absent. They cannot become editable tables, but their
+            # omission is expected and can occur repeatedly while candidate framings are
+            # inspected. Keep that diagnostic available without flooding a normal console.
+            report = log.debug if e.get("type") is None else log.warning
+            report("dropping table %r while resolving rom %r: %s", name, romid.xmlid, exc)
+    return RomDefinition(
+        romid=romid,
+        tables=tables,
+        checksum_type=_checksum_type_for_layers(layers),
+    )
+
+
+def resolve_rom(nodes_by_xmlid: dict[str, list[ET.Element]], xmlid: str) -> RomDefinition:
     leaf = pick_rom(nodes_by_xmlid, xmlid)
     if leaf is None:
         raise DefinitionError(f"no <rom> with xmlid {xmlid!r}")
-    return RomDefinition(
-        romid=_rom_id_of(leaf),
-        tables=tables,
-        checksum_type=_checksum_type(nodes_by_xmlid, chain),
-    )
+    return resolve_rom_element(nodes_by_xmlid, leaf)

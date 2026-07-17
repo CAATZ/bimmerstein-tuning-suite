@@ -61,7 +61,7 @@ class CellInspectorPanel(QWidget):
             return
         self._values["Address"].setText(f"0x{address:04X}")
         try:
-            offset = self._rom.memory_model.file_offset(address)
+            offset = self._rom.memory_model_for(self._table).file_offset(address)
         except Exception:  # noqa: BLE001 — not every imported memory model maps every address
             self._values["File offset"].setText("—")
         else:
@@ -82,7 +82,7 @@ class CellInspectorPanel(QWidget):
         self._values["Description"].setText(description)
         self._values["Description"].setToolTip(description)
         self._set_address(tdef.storage_address)
-        self._values["Endian"].setText(tdef.endian or rom.endian_default)
+        self._values["Endian"].setText(tdef.endian or rom.endian_default_for(table))
 
         if table.cells:
             scale = table.cells[0].scale
@@ -137,4 +137,4 @@ class CellInspectorPanel(QWidget):
         lo, hi = scale.to_real(cell.storage_min), scale.to_real(cell.storage_max)
         lo, hi = min(lo, hi), max(lo, hi)
         self._values["Range"].setText(f"{scale.format_value(lo)} … {scale.format_value(hi)} {scale.units}")
-        self._values["Endian"].setText(tdef.endian or rom.endian_default)
+        self._values["Endian"].setText(tdef.endian or rom.endian_default_for(table))

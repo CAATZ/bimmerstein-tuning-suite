@@ -1,17 +1,17 @@
 #ifndef AppVersion
-  #define AppVersion "0.1.0b3"
+  #define AppVersion "0.1.0b4"
 #endif
 #ifndef AppDisplayVersion
-  #define AppDisplayVersion "0.1.0 Beta 3"
+  #define AppDisplayVersion "0.1.0 Beta 4"
 #endif
 #ifndef AppNumericVersion
-  #define AppNumericVersion "0.1.0.3"
+  #define AppNumericVersion "0.1.0.4"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\.tmp\release-build\dist\ecueditor"
 #endif
 #ifndef OutputDir
-  #define OutputDir "..\release\0.1.0b3"
+  #define OutputDir "..\release\0.1.0b4"
 #endif
 
 [Setup]

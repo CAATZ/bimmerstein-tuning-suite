@@ -1,6 +1,7 @@
 from __future__ import annotations
 from ecueditor.core.memory.base import MemoryModel
 from ecueditor.core.memory.direct import DirectMemoryModel
+from ecueditor.core.memory.linear_offset import LinearOffsetMemoryModel
 from ecueditor.core.memory.ms41_fullread import MS41FullReadModel
 from ecueditor.core.defs.model import RomId
 from ecueditor.core.errors import DefinitionError
@@ -53,3 +54,14 @@ def probe_offset(romid: RomId, image_size: int) -> int:
     if _is_24kb_framed(romid) and image_size == _FULL:
         return (0x10000 + addr) ^ 0x4000   # probe the id bytes at fo(addr) in a full read
     return addr                             # raw probe otherwise
+
+
+__all__ = [
+    "DirectMemoryModel",
+    "LinearOffsetMemoryModel",
+    "MS41FullReadModel",
+    "MemoryModel",
+    "image_size_compatible",
+    "model_for_match",
+    "probe_offset",
+]
