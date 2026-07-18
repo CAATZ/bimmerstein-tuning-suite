@@ -1,12 +1,12 @@
-# BimmerStein Tuning Suite 0.1.0 Beta 6
+# BimmerStein Tuning Suite 0.1.0 Beta 7
 
 **ECU Calibration and Data Logging**
 
 Released 2026-07-17
 
-Beta 6 introduces a verified Nuitka-compiled Windows build while retaining the established
-PyInstaller build for direct comparison. It includes the Map Studio and 3D visualization
-corrections from Beta 5 and remains beta software intended for testing and feedback.
+Beta 7 corrects two small but blocking Map Studio action-state issues while retaining the verified
+Nuitka and PyInstaller Windows builds introduced in Beta 6. It remains beta software intended for
+testing and feedback.
 
 ## Windows packages
 
@@ -21,6 +21,13 @@ corrections from Beta 5 and remains beta software intended for testing and feedb
 
 ## Included corrections
 
+- The smoothing review dialog's **Apply** button now accepts the reviewed transformation and closes
+  the dialog. Previously, Qt treated the button as an Apply-role control while the dialog listened
+  only for an Accept-role signal, so the click did nothing.
+- A newly opened Map Studio Source now enables whole-table actions immediately, even when no cell is
+  selected: **Find anomalies**, **Smooth table**, and **Copy Entire Table**.
+- Selection-only actions such as **Copy Selection** and **Repair Selection** remain disabled until a
+  cell or region is selected, matching the established Result-tab behavior.
 - Map Studio now offers **Linear to destination**, which continues the edge slope across the full
   destination grid instead of stopping after the Limited linear distance.
 - **Limited linear** remains available when extrapolation must stop after a configured maximum

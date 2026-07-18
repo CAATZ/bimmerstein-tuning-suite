@@ -168,7 +168,7 @@ class SmoothingPreviewDialog(QDialog):
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Apply | QDialogButtonBox.StandardButton.Cancel
         )
-        buttons.accepted.connect(self.accept)
+        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
         preferred = layout.sizeHint().expandedTo(QSize(620, 400))
@@ -1233,6 +1233,7 @@ class MapStudioDocument(QWidget):
         self.source_legend.refresh()
         self.splitter.updateGeometry()
         self.updateGeometry()
+        self._refresh_edit_actions()
         self.refresh_stale_state()
 
     def _set_axis_fields(self, x: np.ndarray, y: np.ndarray | None) -> None:

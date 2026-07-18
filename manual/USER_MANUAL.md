@@ -2,14 +2,14 @@
 
 **ECU Calibration and Data Logging**
 
-Version 0.1.0 Beta 6
+Version 0.1.0 Beta 7
 Windows x64
 
 BimmerStein Tuning Suite is a desktop calibration editor and live-data logger. The current beta
 focuses on BMW MS41 while retaining an extensible definition and plugin architecture for other
 platforms.
 
-This manual describes the Beta 6 release. Screenshots use synthetic demonstration data and do not
+This manual describes the Beta 7 release. Screenshots use synthetic demonstration data and do not
 contain a production ROM or proprietary definition.
 
 <!-- pagebreak -->
@@ -35,12 +35,12 @@ working as designed.
 
 ### Beta scope
 
-Beta 6 is intended for testing and feedback. DS2 polling has been exercised on hardware, but more
+Beta 7 is intended for testing and feedback. DS2 polling has been exercised on hardware, but more
 ECU versions, interfaces, Windows systems, and display-scaling combinations still need validation.
 Check multi-byte logger channels carefully because a channel definition may need explicit byte
 order information.
 
-Not implemented in Beta 6: ECU flashing, Subaru SSM, generic OBD-II or ELM327, J2534, and Bluetooth
+Not implemented in Beta 7: ECU flashing, Subaru SSM, generic OBD-II or ELM327, J2534, and Bluetooth
 transports.
 
 <!-- pagebreak -->
@@ -49,12 +49,12 @@ transports.
 
 ### Windows installer
 
-1. Download the Beta 6 Nuitka setup executable from the project release page. The PyInstaller setup
+1. Download the Beta 7 Nuitka setup executable from the project release page. The PyInstaller setup
    remains available in this transitional beta for comparison.
 2. Run the installer and choose the destination folder.
 3. Start **BimmerStein Tuning Suite** from the Start menu or desktop shortcut.
 
-The Beta 6 executables are not code-signed. Windows may show an unknown-publisher warning. Confirm
+The Beta 7 executables are not code-signed. Windows may show an unknown-publisher warning. Confirm
 that the filename and SHA-256 checksum match the release before continuing.
 
 ### Portable package
@@ -203,6 +203,10 @@ Map Studio works on a local snapshot until **Apply to _table name_** is chosen. 
 - **Linear to destination**, which continues the final source slope across the complete destination
   grid, and **Limited linear**, which caps that continuation by a configurable number of edge intervals.
 - Anomaly detection, selected-cell harmonic repair, whole-table smoothing with a mandatory preview, local undo/redo, difference views, slices, 3D review, and a safety summary.
+- Whole-table actions such as **Find anomalies**, **Smooth table**, and **Copy Entire Table** are
+  available without selecting a cell. Selection-only repair and copy commands remain disabled until
+  a region is selected. Accepting the smoothing preview closes it and installs the reviewed values
+  into the local Studio source or result.
 - The suite's selected heatmap palette (Classic Rainbow by default) and the same Normal/Compact
   numeric sizing used by the main tables. Studio tables open at 100%; **Fit** is an explicit command
   when the complete grid should be scaled into the current viewport. Amber outlines identify
@@ -219,8 +223,6 @@ Increasing a destination axis beyond the selected source range requires **Linear
 or **Limited linear**. Adding more breakpoints within the original range is interpolation, not
 extrapolation. Changing the source region, destination grid, interpolation method, boundary policy,
 or edge limit invalidates the current preview so stale results cannot be applied accidentally.
-
-<!-- pagebreak -->
 
 Review the Result, Changes, visualizations, extrapolated-cell highlights, and safety summary before
 applying. Apply quantizes the axes and values first, then commits both atomically as one table undo
@@ -544,7 +546,7 @@ files.
 
 - Project: [github.com/CAATZ/bimmerstein-tuning-suite](https://github.com/CAATZ/bimmerstein-tuning-suite)
 - Issues: [Report a bug or request a feature](https://github.com/CAATZ/bimmerstein-tuning-suite/issues)
-- Release notes: [Beta 6 release notes](../RELEASE_NOTES.md)
+- Release notes: [Beta 7 release notes](../RELEASE_NOTES.md)
 - Licensing: [GNU GPL and third-party notices](../THIRD_PARTY_NOTICES.md)
 
 Useful bug reports include the ECU or ROM version, Windows version, display-scaling percentage,

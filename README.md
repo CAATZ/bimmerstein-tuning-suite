@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b6"><strong>Download Beta 6</strong></a>
+  <a href="https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b7"><strong>Download Beta 7</strong></a>
   &nbsp;&middot;&nbsp;
   <a href="output/pdf/BimmerStein-Tuning-Suite-User-Manual.pdf">User Manual</a>
   &nbsp;&middot;&nbsp;
@@ -39,9 +39,9 @@ calibration workflows, but it is not a Git fork of RomRaider.
 
 ## Beta release
 
-The current public beta is **0.1.0 Beta 6** (`0.1.0b6`):
+The current public beta is **0.1.0 Beta 7** (`0.1.0b7`):
 
-[Download BimmerStein Tuning Suite 0.1.0 Beta 6](https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b6)
+[Download BimmerStein Tuning Suite 0.1.0 Beta 7](https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b7)
 
 The release provides:
 
