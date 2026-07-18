@@ -182,11 +182,11 @@ class _StudioAxisHeader(QHeaderView):
         return QSize(max(1, label_width), hint.height())
 
     def paintSection(self, painter: QPainter, rect, logical_index: int) -> None:
-        if self.orientation() != Qt.Orientation.Vertical:
-            super().paintSection(painter, rect, logical_index)
-            return
         if not rect.isValid():
             return
+        # Paint both orientations explicitly.  Delegating the horizontal axis to
+        # QHeaderView lets the global QSS pseudo-section substitute the larger
+        # application font instead of this header's zoom-scaled numeric font.
         theme = current_theme()
         value = self.model().headerData(
             logical_index,
@@ -641,6 +641,17 @@ class ArrayTableWidget(QTableWidget):
         self.setFont(font)
         self.horizontalHeader().setFont(font)
         self.verticalHeader().setFont(font)
+        # QTableWidget header items otherwise retain QApplication's default font.
+        # Keep their FontRole in the same projection so style-option metrics and
+        # section geometry remain synchronized whenever zoom changes.
+        for column in range(self.columnCount()):
+            item = self.horizontalHeaderItem(column)
+            if item is not None:
+                item.setFont(font)
+        for row in range(self.rowCount()):
+            item = self.verticalHeaderItem(row)
+            if item is not None:
+                item.setFont(font)
 
     def _apply_dimensions(self) -> None:
         font = self._font_for_zoom(self._zoom_percent)

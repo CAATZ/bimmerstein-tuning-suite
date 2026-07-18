@@ -1,17 +1,17 @@
 #ifndef AppVersion
-  #define AppVersion "0.1.0b7"
+  #define AppVersion "0.1.0b8"
 #endif
 #ifndef AppDisplayVersion
-  #define AppDisplayVersion "0.1.0 Beta 7"
+  #define AppDisplayVersion "0.1.0 Beta 8"
 #endif
 #ifndef AppNumericVersion
-  #define AppNumericVersion "0.1.0.7"
+  #define AppNumericVersion "0.1.0.8"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\.tmp\release-build\dist\ecueditor"
 #endif
 #ifndef OutputDir
-  #define OutputDir "..\release\0.1.0b7"
+  #define OutputDir "..\release\0.1.0b8"
 #endif
 #ifndef PackageSuffix
   #define PackageSuffix ""

@@ -1,12 +1,12 @@
-# BimmerStein Tuning Suite 0.1.0 Beta 7
+# BimmerStein Tuning Suite 0.1.0 Beta 8
 
 **ECU Calibration and Data Logging**
 
-Released 2026-07-17
+Released 2026-07-18
 
-Beta 7 corrects two small but blocking Map Studio action-state issues while retaining the verified
-Nuitka and PyInstaller Windows builds introduced in Beta 6. It remains beta software intended for
-testing and feedback.
+Beta 8 corrects Map Studio's horizontal-axis typography so it follows the same density and zoom
+scale as the main calibration table, its cells, and its vertical axis. It retains the verified
+Nuitka and PyInstaller Windows packages and remains beta software intended for testing and feedback.
 
 ## Windows packages
 
@@ -19,25 +19,15 @@ testing and feedback.
 - Exact Python, backend, and dependency versions are recorded in separate build-environment files,
   with every release artifact covered by `SHA256SUMS.txt`.
 
-## Included corrections
+## Included correction
 
-- The smoothing review dialog's **Apply** button now accepts the reviewed transformation and closes
-  the dialog. Previously, Qt treated the button as an Apply-role control while the dialog listened
-  only for an Accept-role signal, so the click did nothing.
-- A newly opened Map Studio Source now enables whole-table actions immediately, even when no cell is
-  selected: **Find anomalies**, **Smooth table**, and **Copy Entire Table**.
-- Selection-only actions such as **Copy Selection** and **Repair Selection** remain disabled until a
-  cell or region is selected, matching the established Result-tab behavior.
-- Map Studio now offers **Linear to destination**, which continues the edge slope across the full
-  destination grid instead of stopping after the Limited linear distance.
-- **Limited linear** remains available when extrapolation must stop after a configured maximum
-  number of edge intervals.
-- Changing a source region, destination grid, interpolation method, boundary policy, or edge limit
-  invalidates the generated preview and requires regeneration before it can be applied.
-- Both 3D viewers preserve real breakpoint geometry while presenting regular whole-number axis
-  ticks, such as 100-unit Load and 1000-RPM intervals where appropriate.
-- Exact calibrated breakpoint values remain available through table cells and selection readouts;
-  only the displayed 3D scale labels are coarsened.
+- Map Studio's horizontal breakpoint labels now use the table's explicit scaled numeric font rather
+  than Qt's larger application-level header font. The axis stays aligned with the main table in
+  Normal and Compact density and continues to scale correctly with Studio zoom and **Fit**.
+- Header-item metrics are synchronized with the active table font so section geometry follows the
+  rendered labels instead of retaining an unrelated application-font measurement.
+- A rendered-pixel regression now verifies the actual themed horizontal-axis output, in addition to
+  checking the stored Qt font and style-option metrics.
 
 ## Existing capabilities
 
