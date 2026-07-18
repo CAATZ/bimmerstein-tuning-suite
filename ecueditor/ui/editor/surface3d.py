@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -48,7 +47,7 @@ def surface_arrays(table) -> tuple["np.ndarray", "np.ndarray", "np.ndarray"]:
 def axis_positions(values) -> "np.ndarray":
     """Map real breakpoints to 0..10 while preserving non-uniform spacing.
 
-    Repeated RomRaider padding bins receive tiny visual-only gaps.  Their displayed labels and
+    Repeated RomRaider padding bins receive tiny visual-only gaps. Their displayed labels and
     ROM values remain unchanged, but the render grid stays strictly ordered and inspectable.
     """
     axis = np.asarray(values, dtype=float)
@@ -69,27 +68,36 @@ def axis_positions(values) -> "np.ndarray":
     return positions
 
 
-def axis_tick_indices(count: int, target: int = 7) -> tuple[int, ...]:
-    """Return adaptive index ticks while keeping both ends."""
-    if count <= 0:
-        return ()
-    step = max(1, round(count / max(1, target)))
-    ticks = list(range(0, count, step))
-    if ticks[-1] != count - 1:
-        ticks.append(count - 1)
-    return tuple(ticks)
+def coarse_axis_ticks(values, target: int = 7) -> tuple[tuple[float, ...], tuple[str, ...]]:
+    """Return regularly spaced whole-number ticks on the normalized real-value axis."""
+    from matplotlib.ticker import MaxNLocator
 
-
-def axis_value_tick_indices(values, target: int = 7) -> tuple[int, ...]:
-    """Adaptive tick indexes with repeated RomRaider padding labelled once."""
     axis = np.asarray(values, dtype=float)
-    unique: list[int] = []
-    for index, value in enumerate(axis):
-        if any(math.isclose(float(value), float(axis[prior]), rel_tol=1e-9, abs_tol=1e-9)
-               for prior in unique):
-            continue
-        unique.append(index)
-    return tuple(unique[index] for index in axis_tick_indices(len(unique), target))
+    if axis.size == 0:
+        return (), ()
+    start, end = float(axis[0]), float(axis[-1])
+    if start == end:
+        return (0.0,), (str(int(round(start))),)
+    low, high = sorted((start, end))
+    locator = MaxNLocator(
+        nbins=max(1, target),
+        integer=True,
+        steps=[1.0, 2.0, 2.5, 5.0, 10.0],
+    )
+    tolerance = np.finfo(float).eps * max(1.0, abs(low), abs(high)) * 16.0
+    tick_values = [
+        float(value)
+        for value in locator.tick_values(low, high)
+        if low - tolerance <= value <= high + tolerance
+        and np.isclose(value, round(float(value)), rtol=0.0, atol=tolerance)
+    ]
+    if not tick_values:
+        return (5.0,), (str(int(round((start + end) / 2.0))),)
+    if start > end:
+        tick_values.reverse()
+    positions = tuple((value - start) / (end - start) * 10.0 for value in tick_values)
+    labels = tuple(str(int(round(value))) for value in tick_values)
+    return positions, labels
 
 
 def oriented_arrays(x, y, z, *, flip_x: bool, flip_y: bool):
@@ -509,12 +517,10 @@ class Surface3DView(QWidget):
             antialiased=True, shade=False,
         )
 
-        x_ticks = axis_value_tick_indices(x)
-        y_ticks = axis_value_tick_indices(y)
-        self.axes.set_xticks([float(nx[index]) for index in x_ticks],
-                             [f"{x[index]:g}" for index in x_ticks])
-        self.axes.set_yticks([float(ny[index]) for index in y_ticks],
-                             [f"{y[index]:g}" for index in y_ticks])
+        x_tick_positions, x_tick_labels = coarse_axis_ticks(x)
+        y_tick_positions, y_tick_labels = coarse_axis_ticks(y)
+        self.axes.set_xticks(x_tick_positions, x_tick_labels)
+        self.axes.set_yticks(y_tick_positions, y_tick_labels)
         xy_limits = scaled_limits(0.0, 10.0, SURFACE_DEFAULT_VIEW_SCALE)
         z_limits = scaled_limits(
             low - pad,

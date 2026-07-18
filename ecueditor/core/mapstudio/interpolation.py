@@ -15,6 +15,8 @@ from .model import (
     validate_map_axis,
 )
 
+_LINEAR_BOUNDARIES = {"linear", "linear_to_destination"}
+
 
 def even_axis(start: float, stop: float, count: int) -> np.ndarray:
     start, stop, count = float(start), float(stop), int(count)
@@ -121,6 +123,8 @@ def _evaluation_axes(
 ) -> tuple[np.ndarray, np.ndarray]:
     if boundary == "hold":
         return np.clip(target_x, x[0], x[-1]), np.clip(target_y, y[0], y[-1])
+    if boundary == "linear_to_destination":
+        return target_x, target_y
     if boundary == "linear":
         if edge_limit <= 0:
             raise MapValidationError("Maximum extrapolation distance must be greater than zero.")
@@ -143,7 +147,7 @@ def resample_map(
         raise TypeError(f"Unexpected arguments: {', '.join(legacy)}")
     if method not in {"bilinear", "pchip"}:
         raise MapValidationError(f"Unknown interpolation method: {method}.")
-    if boundary not in {"hold", "linear", "disallow"}:
+    if boundary not in {"hold", *_LINEAR_BOUNDARIES, "disallow"}:
         raise MapValidationError(f"Unknown boundary policy: {boundary}.")
     requested_x = validate_map_axis(target_x, "Target X")
     requested_y = validate_map_axis(target_y, "Target Y")
@@ -170,7 +174,7 @@ def resample_map(
         pchip_x = np.clip(target_x_ascending, source_ascending.x[0], source_ascending.x[-1])
         pchip_y = np.clip(target_y_ascending, source_ascending.y[0], source_ascending.y[-1])
         values = _pchip_map(source_ascending, pchip_x, pchip_y)
-        if boundary == "linear":
+        if boundary in _LINEAR_BOUNDARIES:
             values[outside] = bilinear[outside]
     if requested_y[0] > requested_y[-1]:
         values, bilinear, outside = values[::-1, :], bilinear[::-1, :], outside[::-1, :]
@@ -210,7 +214,7 @@ def resample_curve(
         raise TypeError(f"Unexpected arguments: {', '.join(legacy)}")
     if method not in {"linear", "pchip"}:
         raise MapValidationError(f"Unknown curve interpolation method: {method}.")
-    if boundary not in {"hold", "linear", "disallow"}:
+    if boundary not in {"hold", *_LINEAR_BOUNDARIES, "disallow"}:
         raise MapValidationError(f"Unknown boundary policy: {boundary}.")
     requested = validate_axis(target_x, "Target X")
     source_ascending = collapse_duplicate_curve(source).curve_data.ascending()
@@ -226,6 +230,8 @@ def resample_curve(
         if edge_limit <= 0:
             raise MapValidationError("Maximum extrapolation distance must be greater than zero.")
         evaluation = _limited(source_ascending.x, ascending_target, edge_limit)
+    elif boundary == "linear_to_destination":
+        evaluation = ascending_target
     else:
         evaluation = ascending_target
     linear = _linear_curve(source_ascending, evaluation)
@@ -243,7 +249,7 @@ def resample_curve(
             ),
             dtype=float,
         )
-        if boundary == "linear":
+        if boundary in _LINEAR_BOUNDARIES:
             values[outside] = linear[outside]
     if requested[0] > requested[-1]:
         values, linear, outside = values[::-1], linear[::-1], outside[::-1]

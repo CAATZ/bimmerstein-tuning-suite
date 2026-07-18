@@ -677,15 +677,24 @@ class MapStudioDocument(QWidget):
             QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
         )
         self.boundary_combo.addItem("Hold edge values", "hold")
+        self.boundary_combo.addItem("Linear to destination", "linear_to_destination")
         self.boundary_combo.addItem("Limited linear", "linear")
         self.boundary_combo.addItem("Do not extrapolate", "disallow")
+        self.boundary_combo.setToolTip(
+            "Linear to destination continues the final source slope across the complete "
+            "target grid. Limited linear stops after the configured maximum distance."
+        )
         self.edge_limit = QDoubleSpinBox()
         self.edge_limit.setRange(0.05, 20.0)
         self.edge_limit.setValue(1.0)
         self.edge_limit.setSingleStep(0.25)
+        self.edge_limit.setToolTip(
+            "Maximum distance beyond each source edge. 1.00 continues the slope for one "
+            "final source interval, then holds that extrapolated value."
+        )
         method_layout.addRow("Method", self.method_combo)
         method_layout.addRow("Boundary", self.boundary_combo)
-        method_layout.addRow("Edge intervals", self.edge_limit)
+        method_layout.addRow("Maximum edge intervals", self.edge_limit)
         self.edge_limit_label = method_layout.labelForField(self.edge_limit)
         self.expand_button = QPushButton("Expand Region to Full Grid")
         self.expand_button.setIcon(icon("interpolate"))
@@ -747,7 +756,13 @@ class MapStudioDocument(QWidget):
         self.expand_button.clicked.connect(self.expand_to_full_grid)
         self.generate_button.clicked.connect(self.generate_result)
         self.target_mode.currentIndexChanged.connect(self._target_mode_changed)
+        self.target_mode.currentIndexChanged.connect(self._resampling_settings_changed)
+        self.method_combo.currentIndexChanged.connect(self._resampling_settings_changed)
         self.boundary_combo.currentIndexChanged.connect(self._boundary_changed)
+        self.boundary_combo.currentIndexChanged.connect(self._resampling_settings_changed)
+        self.edge_limit.valueChanged.connect(self._resampling_settings_changed)
+        self.target_x_text.textChanged.connect(self._resampling_settings_changed)
+        self.target_y_text.textChanged.connect(self._resampling_settings_changed)
         self.x_min.valueChanged.connect(
             lambda value: self._automatic_bound_edited("x", 0, value)
         )
@@ -1254,12 +1269,14 @@ class MapStudioDocument(QWidget):
             bounds = list(self._automatic_x_bounds)
             bounds[endpoint] = float(value)
             self._automatic_x_bounds = bounds[0], bounds[1]
+            self._resampling_settings_changed()
             return
         if self._automatic_y_bounds is None:
             return
         bounds = list(self._automatic_y_bounds)
         bounds[endpoint] = float(value)
         self._automatic_y_bounds = bounds[0], bounds[1]
+        self._resampling_settings_changed()
 
     def _configure_axis_inputs(self) -> None:
         sx, _sy = self.table.shape()
@@ -1311,6 +1328,16 @@ class MapStudioDocument(QWidget):
         if self.edge_limit_label is not None:
             self.edge_limit_label.setVisible(visible)
 
+    def _resampling_settings_changed(self, *_args) -> None:
+        if self.result is None and self.curve_result is None:
+            return
+        self._clear_result()
+        self.status_label.setText(
+            "Resampling settings changed. Generate a new preview."
+        )
+        self.status_chip.setText("REGENERATE")
+        self.status_chip.set_kind("warn")
+
     def _region_from_logical_selection(self, selection):
         if not selection:
             return None
@@ -1352,13 +1379,24 @@ class MapStudioDocument(QWidget):
             row0, row1, column0, column1 = self._map_source_region()
             self.source_table.select_rectangle(row0, row1, column0, column1)
 
+    def _replace_source_region(
+        self,
+        region: tuple[int, int] | tuple[int, int, int, int],
+    ) -> bool:
+        previous = self.source_region
+        self.source_region = region
+        if previous == region or (self.result is None and self.curve_result is None):
+            return False
+        self._clear_result()
+        return True
+
     def capture_source_region(self) -> bool:
         indexes = self.source_table.selectedIndexes()
         if self.snapshot.kind == "curve":
             columns = sorted({index.column() for index in indexes})
             if len(columns) < 2 or columns != list(range(columns[0], columns[-1] + 1)):
                 return self._error("Select at least two contiguous curve points.")
-            self.source_region = columns[0], columns[-1]
+            invalidated = self._replace_source_region((columns[0], columns[-1]))
         else:
             rows = sorted({index.row() for index in indexes})
             columns = sorted({index.column() for index in indexes})
@@ -1370,16 +1408,23 @@ class MapStudioDocument(QWidget):
                 or columns != list(range(columns[0], columns[-1] + 1))
             ):
                 return self._error("Select one contiguous rectangle with at least 2 × 2 cells.")
-            self.source_region = rows[0], rows[-1], columns[0], columns[-1]
-        self.status_label.setText("Source region captured. The opening table remains the destination.")
+            invalidated = self._replace_source_region(
+                (rows[0], rows[-1], columns[0], columns[-1])
+            )
+        self.status_label.setText(
+            "Source region changed. Generate a new preview."
+            if invalidated
+            else "Source region captured. The opening table remains the destination."
+        )
         self.source_summary_label.setText(self._source_region_text())
         self.source_summary_label.set_kind("ok")
-        self.status_chip.setText("SOURCE SET")
-        self.status_chip.set_kind("ok")
+        self.status_chip.setText("REGENERATE" if invalidated else "SOURCE SET")
+        self.status_chip.set_kind("warn" if invalidated else "ok")
         return True
 
     def detect_active_region(self) -> bool:
         try:
+            region: tuple[int, int] | tuple[int, int, int, int]
             if self.snapshot.kind == "curve":
                 assert self.curve_source is not None
                 collapse_duplicate_curve(self.curve_source)
@@ -1389,7 +1434,7 @@ class MapStudioDocument(QWidget):
                         "Automatic detection supports consecutive trailing padding; select the "
                         "active region manually for this axis layout."
                     )
-                self.source_region = (0, int(x_keep[-1]))
+                region = (0, int(x_keep[-1]))
             else:
                 assert self.source_data is not None
                 collapse_duplicate_map(self.source_data)
@@ -1402,13 +1447,18 @@ class MapStudioDocument(QWidget):
                         "Automatic detection supports consecutive trailing padding; select the "
                         "active region manually for this axis layout."
                     )
-                self.source_region = (0, int(y_keep[-1]), 0, int(x_keep[-1]))
+                region = (0, int(y_keep[-1]), 0, int(x_keep[-1]))
+            invalidated = self._replace_source_region(region)
             self._select_source_region()
-            self.status_label.setText("Detected the unique non-padded source region.")
+            self.status_label.setText(
+                "Source region changed. Generate a new preview."
+                if invalidated
+                else "Detected the unique non-padded source region."
+            )
             self.source_summary_label.setText(self._source_region_text())
             self.source_summary_label.set_kind("ok")
-            self.status_chip.setText("SOURCE SET")
-            self.status_chip.set_kind("ok")
+            self.status_chip.setText("REGENERATE" if invalidated else "SOURCE SET")
+            self.status_chip.set_kind("warn" if invalidated else "ok")
             return True
         except MapValidationError as exc:
             return self._error(str(exc))

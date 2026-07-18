@@ -2,14 +2,14 @@
 
 **ECU Calibration and Data Logging**
 
-Version 0.1.0 Beta 4
+Version 0.1.0 Beta 5
 Windows x64
 
 BimmerStein Tuning Suite is a desktop calibration editor and live-data logger. The current beta
 focuses on BMW MS41 while retaining an extensible definition and plugin architecture for other
 platforms.
 
-This manual describes the Beta 4 release. Screenshots use synthetic demonstration data and do not
+This manual describes the Beta 5 release. Screenshots use synthetic demonstration data and do not
 contain a production ROM or proprietary definition.
 
 <!-- pagebreak -->
@@ -35,12 +35,12 @@ working as designed.
 
 ### Beta scope
 
-Beta 4 is intended for testing and feedback. DS2 polling has been exercised on hardware, but more
+Beta 5 is intended for testing and feedback. DS2 polling has been exercised on hardware, but more
 ECU versions, interfaces, Windows systems, and display-scaling combinations still need validation.
 Check multi-byte logger channels carefully because a channel definition may need explicit byte
 order information.
 
-Not implemented in Beta 4: ECU flashing, Subaru SSM, generic OBD-II or ELM327, J2534, and Bluetooth
+Not implemented in Beta 5: ECU flashing, Subaru SSM, generic OBD-II or ELM327, J2534, and Bluetooth
 transports.
 
 <!-- pagebreak -->
@@ -49,11 +49,11 @@ transports.
 
 ### Windows installer
 
-1. Download the Beta 4 setup executable from the project release page.
+1. Download the Beta 5 setup executable from the project release page.
 2. Run the installer and choose the destination folder.
 3. Start **BimmerStein Tuning Suite** from the Start menu or desktop shortcut.
 
-The Beta 4 executable is not code-signed. Windows may show an unknown-publisher warning. Confirm
+The Beta 5 executable is not code-signed. Windows may show an unknown-publisher warning. Confirm
 that the filename and SHA-256 checksum match the release before continuing.
 
 ### Portable package
@@ -199,7 +199,8 @@ Map Studio works on a local snapshot until **Apply to _table name_** is chosen. 
 - **Linear** and shape-preserving **PCHIP** interpolation for curves.
 - **Bilinear** and shape-preserving **PCHIP** interpolation for two-axis maps.
 - **Hold edge values** and **Do not extrapolate** boundary safeguards.
-- **Limited linear**, the single extrapolation method, capped by a configurable number of edge intervals.
+- **Linear to destination**, which continues the final source slope across the complete destination
+  grid, and **Limited linear**, which caps that continuation by a configurable number of edge intervals.
 - Anomaly detection, selected-cell harmonic repair, whole-table smoothing with a mandatory preview, local undo/redo, difference views, slices, 3D review, and a safety summary.
 - The suite's selected heatmap palette (Classic Rainbow by default) and the same Normal/Compact
   numeric sizing used by the main tables. Studio tables open at 100%; **Fit** is an explicit command
@@ -213,8 +214,10 @@ creates evenly spaced destination axes by default, and interpolates the selected
 available cells. Switch to custom axes when specific breakpoints are required. Storage-backed axes
 must remain strictly monotonic after their real values are encoded; static axes cannot be expanded.
 
-Increasing a destination axis beyond the selected source range requires **Limited linear**. Adding
-more breakpoints within the original range is interpolation, not extrapolation.
+Increasing a destination axis beyond the selected source range requires **Linear to destination**
+or **Limited linear**. Adding more breakpoints within the original range is interpolation, not
+extrapolation. Changing the source region, destination grid, interpolation method, boundary policy,
+or edge limit invalidates the current preview so stale results cannot be applied accidentally.
 
 <!-- pagebreak -->
 
@@ -540,7 +543,7 @@ files.
 
 - Project: [github.com/CAATZ/bimmerstein-tuning-suite](https://github.com/CAATZ/bimmerstein-tuning-suite)
 - Issues: [Report a bug or request a feature](https://github.com/CAATZ/bimmerstein-tuning-suite/issues)
-- Release notes: [Beta 4 release notes](../RELEASE_NOTES.md)
+- Release notes: [Beta 5 release notes](../RELEASE_NOTES.md)
 - Licensing: [GNU GPL and third-party notices](../THIRD_PARTY_NOTICES.md)
 
 Useful bug reports include the ECU or ROM version, Windows version, display-scaling percentage,

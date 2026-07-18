@@ -23,7 +23,7 @@ from ecueditor.ui.editor.surface3d import (
     CoalescedOrbitController,
     SurfaceControlBar,
     SurfaceSelectionFooter,
-    axis_value_tick_indices,
+    coarse_axis_ticks,
     display_index,
     matplotlib_colormap,
     scaled_limits,
@@ -685,16 +685,10 @@ class MapReviewDialog(QDialog):
                 linewidths=0.5,
                 depthshade=False,
             )
-        x_ticks = axis_value_tick_indices(x)
-        y_ticks = axis_value_tick_indices(y)
-        self.surface_axes.set_xticks(
-            [float(nx[index]) for index in x_ticks],
-            [f"{x[index]:g}" for index in x_ticks],
-        )
-        self.surface_axes.set_yticks(
-            [float(ny[index]) for index in y_ticks],
-            [f"{y[index]:g}" for index in y_ticks],
-        )
+        x_tick_positions, x_tick_labels = coarse_axis_ticks(x)
+        y_tick_positions, y_tick_labels = coarse_axis_ticks(y)
+        self.surface_axes.set_xticks(x_tick_positions, x_tick_labels)
+        self.surface_axes.set_yticks(y_tick_positions, y_tick_labels)
         self.surface_axes.set_xlabel(self._x_label, labelpad=6)
         self.surface_axes.set_ylabel(self._y_label, labelpad=6)
         self.surface_axes.set_zlabel(
