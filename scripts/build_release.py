@@ -29,6 +29,10 @@ from scripts.collect_dependency_licenses import (  # noqa: E402
     RUNTIME_DISTRIBUTIONS,
     collect_dependency_licenses,
 )
+from scripts.build_nuitka_release import (  # noqa: E402
+    build_nuitka_application,
+    nuitka_environment_text,
+)
 
 
 _SOURCE_ROOT_FILES = (
@@ -45,9 +49,11 @@ _SOURCE_TREES = ("ecueditor", "manual", "plugins", "resources")
 _SOURCE_SCRIPTS = (
     "packaging/ecueditor.iss",
     "packaging/ecueditor.spec",
+    "packaging/nuitka_entry.py",
     "packaging/build_user_manual.py",
     "scripts/__init__.py",
     "scripts/build_app_icon.py",
+    "scripts/build_nuitka_release.py",
     "scripts/build_release.py",
     "scripts/collect_dependency_licenses.py",
 )
@@ -101,13 +107,18 @@ def _zip_tree(source: Path, archive: Path) -> None:
                 bundle.write(path, (Path(source.name) / path.relative_to(source)).as_posix())
 
 
-def _copy_source_tree(destination: Path, licenses: Path, environment_file: Path) -> None:
+def _copy_source_tree(
+    destination: Path,
+    licenses: Path,
+    environment_files: tuple[Path, ...],
+) -> None:
     for source in source_files(ROOT):
         target = destination / source.relative_to(ROOT)
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
     shutil.copytree(licenses, destination / "DEPENDENCY_LICENSES")
-    shutil.copy2(environment_file, destination / environment_file.name)
+    for environment_file in environment_files:
+        shutil.copy2(environment_file, destination / environment_file.name)
 
 
 def _build_environment_text() -> str:
@@ -191,76 +202,201 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def build_release(*, output_root: Path, iscc: Path | None, installer: bool = True) -> Path:
+def _package_portable(
+    *,
+    built_app: Path,
+    portable_name: str,
+    release_dir: Path,
+    environment_file: Path,
+) -> tuple[Path, Path, Path]:
+    portable_dir = release_dir / portable_name
+    shutil.copytree(built_app, portable_dir)
+    shutil.copy2(environment_file, portable_dir / "BUILD_ENVIRONMENT.txt")
+    portable_zip = release_dir / f"{portable_name}.zip"
+    _zip_tree(portable_dir, portable_zip)
+    executable = portable_dir / f"{WINDOWS_APP_STEM}.exe"
+    if not executable.is_file():
+        raise FileNotFoundError(f"Packaged application is missing {executable.name}")
+    return portable_dir, portable_zip, executable
+
+
+def _compile_installer(
+    *,
+    compiler: Path,
+    source_dir: Path,
+    release_dir: Path,
+    version: str,
+    package_suffix: str,
+) -> Path:
+    _run([
+        str(compiler),
+        f"/DAppVersion={version}",
+        f"/DAppDisplayVersion={display_version(version)}",
+        f"/DAppNumericVersion={windows_numeric_version(version)}",
+        f"/DPackageSuffix={package_suffix}",
+        f"/DSourceDir={source_dir}",
+        f"/DOutputDir={release_dir}",
+        "packaging/ecueditor.iss",
+    ])
+    setup = release_dir / (
+        f"{WINDOWS_APP_STEM}-{version}-Windows-x64{package_suffix}-Setup.exe"
+    )
+    if not setup.is_file():
+        raise FileNotFoundError("Inno Setup did not produce the expected installer")
+    return setup
+
+
+def _collect_release_licenses(
+    *,
+    output: Path,
+    include_nuitka: bool,
+    nuitka_python: Path | None,
+    include_pyinstaller: bool,
+) -> None:
+    if not include_nuitka:
+        collect_dependency_licenses(output)
+        return
+    if nuitka_python is None:
+        raise ValueError("A Nuitka Python executable is required for a Nuitka build")
+    command = [
+        str(nuitka_python),
+        str(ROOT / "scripts" / "collect_dependency_licenses.py"),
+        str(output),
+    ]
+    if include_pyinstaller:
+        command.extend(("--backend", "pyinstaller"))
+    command.extend(("--backend", "nuitka"))
+    _run(command)
+
+
+def build_release(
+    *,
+    output_root: Path,
+    iscc: Path | None,
+    installer: bool = True,
+    backend: str = "pyinstaller",
+    nuitka_python: Path | None = None,
+    nuitka_cache: Path | None = None,
+) -> Path:
+    if backend not in {"pyinstaller", "nuitka", "both"}:
+        raise ValueError(f"Unsupported release backend: {backend}")
     version = __version__
+    include_pyinstaller = backend in {"pyinstaller", "both"}
+    include_nuitka = backend in {"nuitka", "both"}
+    resolved_nuitka_python = (
+        (nuitka_python or Path(sys.executable)).resolve() if include_nuitka else None
+    )
+    if resolved_nuitka_python is not None and not resolved_nuitka_python.is_file():
+        raise FileNotFoundError(resolved_nuitka_python)
+    nuitka_suffix = "-Nuitka"
     release_dir = (output_root / version).resolve()
     build_root = (ROOT / ".tmp" / f"release-{version}").resolve()
     _reset_directory(release_dir, allowed_parent=output_root)
     _reset_directory(build_root, allowed_parent=ROOT / ".tmp")
 
     licenses = build_root / "DEPENDENCY_LICENSES"
-    collect_dependency_licenses(licenses)
-    environment_file = build_root / "BUILD_ENVIRONMENT.txt"
-    environment_file.write_text(_build_environment_text(), encoding="utf-8")
-    version_file = build_root / f"{WINDOWS_APP_STEM}-version-info.txt"
-    version_file.write_text(_windows_version_info_text(version), encoding="utf-8")
+    _collect_release_licenses(
+        output=licenses,
+        include_nuitka=include_nuitka,
+        nuitka_python=resolved_nuitka_python,
+        include_pyinstaller=include_pyinstaller,
+    )
+    environment_files: list[Path] = []
+    artifacts: list[Path] = []
+    compiler = _find_iscc(iscc) if installer else None
 
-    pyinstaller_dist = build_root / "pyinstaller-dist"
-    pyinstaller_work = build_root / "pyinstaller-work"
-    build_env = os.environ.copy()
-    build_env["ECUEDITOR_DEPENDENCY_LICENSES"] = str(licenses)
-    build_env["ECUEDITOR_VERSION_FILE"] = str(version_file)
-    _run([
-        sys.executable,
-        "-m",
-        "PyInstaller",
-        "--noconfirm",
-        "--clean",
-        "--distpath",
-        str(pyinstaller_dist),
-        "--workpath",
-        str(pyinstaller_work),
-        "packaging/ecueditor.spec",
-    ], env=build_env)
+    if include_pyinstaller:
+        environment_file = build_root / "BUILD_ENVIRONMENT.txt"
+        environment_file.write_text(_build_environment_text(), encoding="utf-8")
+        environment_files.append(environment_file)
+        version_file = build_root / f"{WINDOWS_APP_STEM}-version-info.txt"
+        version_file.write_text(_windows_version_info_text(version), encoding="utf-8")
 
-    built_app = pyinstaller_dist / WINDOWS_APP_STEM
-    executable = built_app / f"{WINDOWS_APP_STEM}.exe"
-    if not executable.is_file():
-        raise FileNotFoundError(f"PyInstaller did not produce {executable.name}")
-    portable_name = f"{WINDOWS_APP_STEM}-{version}-Windows-x64"
-    portable_dir = release_dir / portable_name
-    shutil.copytree(built_app, portable_dir)
-    shutil.copy2(environment_file, portable_dir / environment_file.name)
-    portable_zip = release_dir / f"{portable_name}.zip"
-    _zip_tree(portable_dir, portable_zip)
+        pyinstaller_dist = build_root / "pyinstaller-dist"
+        pyinstaller_work = build_root / "pyinstaller-work"
+        build_env = os.environ.copy()
+        build_env["ECUEDITOR_DEPENDENCY_LICENSES"] = str(licenses)
+        build_env["ECUEDITOR_VERSION_FILE"] = str(version_file)
+        _run([
+            sys.executable,
+            "-m",
+            "PyInstaller",
+            "--noconfirm",
+            "--clean",
+            "--distpath",
+            str(pyinstaller_dist),
+            "--workpath",
+            str(pyinstaller_work),
+            "packaging/ecueditor.spec",
+        ], env=build_env)
+
+        built_app = pyinstaller_dist / WINDOWS_APP_STEM
+        executable = built_app / f"{WINDOWS_APP_STEM}.exe"
+        if not executable.is_file():
+            raise FileNotFoundError(f"PyInstaller did not produce {executable.name}")
+        portable_name = f"{WINDOWS_APP_STEM}-{version}-Windows-x64"
+        portable_dir, portable_zip, portable_executable = _package_portable(
+            built_app=built_app,
+            portable_name=portable_name,
+            release_dir=release_dir,
+            environment_file=environment_file,
+        )
+        artifacts.extend((portable_zip, portable_executable))
+        if compiler is not None:
+            artifacts.append(_compile_installer(
+                compiler=compiler,
+                source_dir=portable_dir,
+                release_dir=release_dir,
+                version=version,
+                package_suffix="",
+            ))
+
+    if include_nuitka:
+        assert resolved_nuitka_python is not None
+        nuitka_environment = build_root / "BUILD_ENVIRONMENT-Nuitka.txt"
+        nuitka_environment.write_text(
+            nuitka_environment_text(resolved_nuitka_python, version=version),
+            encoding="utf-8",
+        )
+        environment_files.append(nuitka_environment)
+        built_nuitka = build_nuitka_application(
+            python_executable=resolved_nuitka_python,
+            output_dir=build_root / "nuitka-output",
+            cache_dir=(nuitka_cache or ROOT / ".tmp" / "nuitka-cache").resolve(),
+            dependency_licenses=licenses,
+            environment_file=nuitka_environment,
+            version=version,
+        )
+        portable_name = (
+            f"{WINDOWS_APP_STEM}-{version}-Windows-x64{nuitka_suffix}"
+        )
+        portable_dir, portable_zip, portable_executable = _package_portable(
+            built_app=built_nuitka,
+            portable_name=portable_name,
+            release_dir=release_dir,
+            environment_file=nuitka_environment,
+        )
+        artifacts.extend((portable_zip, portable_executable))
+        if compiler is not None:
+            artifacts.append(_compile_installer(
+                compiler=compiler,
+                source_dir=portable_dir,
+                release_dir=release_dir,
+                version=version,
+                package_suffix=nuitka_suffix,
+            ))
 
     source_name = f"{WINDOWS_APP_STEM}-{version}-Source"
     source_stage = build_root / source_name
     source_stage.mkdir()
-    _copy_source_tree(source_stage, licenses, environment_file)
+    _copy_source_tree(source_stage, licenses, tuple(environment_files))
     source_zip = release_dir / f"{source_name}.zip"
     _zip_tree(source_stage, source_zip)
-
-    artifacts = [portable_zip, source_zip, portable_dir / executable.name]
-    if installer:
-        compiler = _find_iscc(iscc)
-        numeric_version = windows_numeric_version(version)
-        _run([
-            str(compiler),
-            f"/DAppVersion={version}",
-            f"/DAppDisplayVersion={display_version(version)}",
-            f"/DAppNumericVersion={numeric_version}",
-            f"/DSourceDir={portable_dir}",
-            f"/DOutputDir={release_dir}",
-            "packaging/ecueditor.iss",
-        ])
-        setup = release_dir / f"{WINDOWS_APP_STEM}-{version}-Windows-x64-Setup.exe"
-        if not setup.is_file():
-            raise FileNotFoundError("Inno Setup did not produce the expected installer")
-        artifacts.append(setup)
+    artifacts.append(source_zip)
 
     shutil.copy2(ROOT / "RELEASE_NOTES.md", release_dir / "RELEASE_NOTES.md")
-    shutil.copy2(environment_file, release_dir / environment_file.name)
+    for environment_file in environment_files:
+        shutil.copy2(environment_file, release_dir / environment_file.name)
     checksums = [
         f"{_sha256(path)}  {path.relative_to(release_dir).as_posix()}"
         for path in artifacts
@@ -274,11 +410,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-root", type=Path, default=ROOT / "release")
     parser.add_argument("--iscc", type=Path)
     parser.add_argument("--no-installer", action="store_true")
+    parser.add_argument(
+        "--backend",
+        choices=("pyinstaller", "nuitka", "both"),
+        default="pyinstaller",
+    )
+    parser.add_argument("--nuitka-python", type=Path)
+    parser.add_argument("--nuitka-cache", type=Path)
     args = parser.parse_args(argv)
     release_dir = build_release(
         output_root=args.output_root,
         iscc=args.iscc,
         installer=not args.no_installer,
+        backend=args.backend,
+        nuitka_python=args.nuitka_python,
+        nuitka_cache=args.nuitka_cache,
     )
     print(f"Release ready: {release_dir}")
     return 0

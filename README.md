@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b5"><strong>Download Beta 5</strong></a>
+  <a href="https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b6"><strong>Download Beta 6</strong></a>
   &nbsp;&middot;&nbsp;
   <a href="output/pdf/BimmerStein-Tuning-Suite-User-Manual.pdf">User Manual</a>
   &nbsp;&middot;&nbsp;
@@ -39,20 +39,22 @@ calibration workflows, but it is not a Git fork of RomRaider.
 
 ## Beta release
 
-The current public beta is **0.1.0 Beta 5** (`0.1.0b5`):
+The current public beta is **0.1.0 Beta 6** (`0.1.0b6`):
 
-[Download BimmerStein Tuning Suite 0.1.0 Beta 5](https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b5)
+[Download BimmerStein Tuning Suite 0.1.0 Beta 6](https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b6)
 
 The release provides:
 
-- A Windows installer (`Windows-x64-Setup.exe`).
-- A portable Windows ZIP containing the application and its runtime files.
+- A Nuitka Windows installer and portable ZIP (`Windows-x64-Nuitka-*`) for the new compiled build.
+- The established PyInstaller Windows installer and portable ZIP for direct comparison during this
+  transitional beta.
 - A corresponding-source ZIP.
-- SHA-256 checksums and an exact build-environment inventory.
+- SHA-256 checksums and an exact build-environment inventory for each build backend.
 
-The executable in the portable package requires the DLLs and resources beside it. Extract the
-complete ZIP before running it. The executables are not code-signed, so Windows may display an
-unknown-publisher warning.
+Both portable executables require the DLLs and resources beside them. Extract the complete ZIP
+before running one. New testers should start with the clearly labeled **Nuitka** package; the
+PyInstaller package remains available to compare any machine-specific behavior. The executables
+are not code-signed, so Windows may display an unknown-publisher warning.
 
 ## Current capabilities
 

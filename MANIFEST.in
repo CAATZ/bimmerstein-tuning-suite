@@ -12,11 +12,13 @@ recursive-include manual/images *.png
 include packaging/build_user_manual.py
 include packaging/ecueditor.spec
 include packaging/ecueditor.iss
+include packaging/nuitka_entry.py
 recursive-include plugins *.py
 recursive-include resources/fonts *.ttf *.txt
 recursive-include resources/icons *.ico *.svg *.txt
 include scripts/__init__.py
 include scripts/build_app_icon.py
+include scripts/build_nuitka_release.py
 include scripts/build_release.py
 include scripts/collect_dependency_licenses.py
 

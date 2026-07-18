@@ -32,6 +32,11 @@ RUNTIME_DISTRIBUTIONS = (
     "six",
     "PyInstaller",
 )
+NUITKA_BUILD_DISTRIBUTIONS = (
+    "Nuitka",
+    "ordered-set",
+    "zstandard",
+)
 _PYSIDE_DISTRIBUTIONS = {"pyside6", "pyside6_addons", "pyside6_essentials", "shiboken6"}
 _LICENSE_NAMES = ("license", "copying", "notice", "authors", "copyright")
 
@@ -57,6 +62,24 @@ DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVI
 DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
 IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+"""
+
+_ORDERED_SET_MIT = """Copyright (c) 2012-2022 Elia Robyn Lake
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge, publish, distribute,
+sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial
+portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES
+OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
 
 
@@ -119,6 +142,11 @@ def _copy_distribution_licenses(
         target.write_text(_PYSERIAL_BSD, encoding="utf-8")
         copied.append(target.relative_to(output).as_posix())
 
+    if package_name.lower() == "ordered-set" and not copied:
+        target = package_dir / "MIT-LICENSE.txt"
+        target.write_text(_ORDERED_SET_MIT, encoding="utf-8")
+        copied.append(target.relative_to(output).as_posix())
+
     if not copied:
         license_text = _declared_license(dist)
         if len(license_text) < 80:
@@ -130,7 +158,12 @@ def _copy_distribution_licenses(
     return copied
 
 
-def collect_dependency_licenses(output: Path, *, root: Path = ROOT) -> Path:
+def collect_dependency_licenses(
+    output: Path,
+    *,
+    root: Path = ROOT,
+    backends: tuple[str, ...] = ("pyinstaller",),
+) -> Path:
     output = output.resolve()
     if output.exists() and any(output.iterdir()):
         raise FileExistsError(f"Dependency-license output is not empty: {output}")
@@ -160,7 +193,10 @@ def collect_dependency_licenses(output: Path, *, root: Path = ROOT) -> Path:
         "",
     ))
 
-    for distribution_name in RUNTIME_DISTRIBUTIONS:
+    distributions = list(RUNTIME_DISTRIBUTIONS)
+    if "nuitka" in backends:
+        distributions.extend(NUITKA_BUILD_DISTRIBUTIONS)
+    for distribution_name in dict.fromkeys(distributions):
         dist = metadata.distribution(distribution_name)
         copied = _copy_distribution_licenses(dist, output, project_license)
         index.extend((
@@ -201,8 +237,17 @@ def main(argv: list[str] | None = None) -> int:
         description="Collect licenses for the frozen BimmerStein Tuning Suite build"
     )
     parser.add_argument("output", type=Path)
+    parser.add_argument(
+        "--backend",
+        action="append",
+        choices=("pyinstaller", "nuitka"),
+        dest="backends",
+    )
     args = parser.parse_args(argv)
-    collect_dependency_licenses(args.output)
+    collect_dependency_licenses(
+        args.output,
+        backends=tuple(args.backends or ("pyinstaller",)),
+    )
     print(args.output.resolve())
     return 0
 

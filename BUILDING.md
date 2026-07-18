@@ -13,8 +13,15 @@ python -m pip install -e ".[gui,comms]"
 python -m pip install "pyinstaller>=6"
 ```
 
-The build-environment inventory shipped with each beta records the exact Python and dependency
-versions used for that binary. Inno Setup 6 is also required to build the installer EXE.
+For a Nuitka build, install its build-only dependencies in the Python environment selected for that
+backend:
+
+```powershell
+python -m pip install "nuitka>=4" ordered-set zstandard
+```
+
+The build-environment inventories shipped with each beta record the exact Python, backend, and
+dependency versions used for each binary. Inno Setup 6 is also required to build the installer EXE.
 
 ## Complete release
 
@@ -22,17 +29,33 @@ versions used for that binary. Inno Setup 6 is also required to build the instal
 python scripts/build_release.py --iscc "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 ```
 
-The command creates `release\<version>\` with the unpacked application, portable ZIP, installer EXE,
-corresponding-source ZIP, release notes, build-environment inventory, and SHA-256 checksums.
+That command preserves the established PyInstaller-only build. To build the transitional dual
+release, explicitly select both backends and the Python environment containing Nuitka:
+
+```powershell
+python scripts/build_release.py --backend both `
+  --nuitka-python ".nuitka-venv\Scripts\python.exe" `
+  --iscc "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+```
+
+Use `--backend nuitka` for only the Nuitka packages. `--nuitka-cache <directory>` can preserve the
+compiler cache between clean release builds. The command creates `release\<version>\` with the
+selected unpacked applications, portable ZIPs, installer EXEs, corresponding-source ZIP, release
+notes, build-environment inventories, and SHA-256 checksums.
 
 For a portable and source build without the installer:
 
 ```powershell
-python scripts/build_release.py --no-installer
+python scripts/build_release.py --backend both `
+  --nuitka-python ".nuitka-venv\Scripts\python.exe" --no-installer
 ```
 
-The launcher EXE is a one-directory PyInstaller application and requires the DLLs and resources beside
-it. Distribute the complete portable ZIP or installer, not `BimmerStein-Tuning-Suite.exe` by itself.
+Both backends produce standalone directories rather than single-file executables. Each launcher EXE
+requires the DLLs and resources beside it. Distribute the complete portable ZIP or installer, not
+`BimmerStein-Tuning-Suite.exe` by itself.
+
+Windows builds must be produced on Windows. A future Linux package should be compiled natively on
+Linux from the same source; Nuitka does not cross-compile a Windows build into a Linux binary.
 
 ## Verification
 

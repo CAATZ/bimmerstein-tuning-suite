@@ -1,13 +1,25 @@
-# BimmerStein Tuning Suite 0.1.0 Beta 5
+# BimmerStein Tuning Suite 0.1.0 Beta 6
 
 **ECU Calibration and Data Logging**
 
 Released 2026-07-17
 
-Beta 5 is a focused Map Studio and 3D visualization correction built on Beta 4. It remains beta
-software intended for testing and feedback.
+Beta 6 introduces a verified Nuitka-compiled Windows build while retaining the established
+PyInstaller build for direct comparison. It includes the Map Studio and 3D visualization
+corrections from Beta 5 and remains beta software intended for testing and feedback.
 
-## Corrections
+## Windows packages
+
+- The recommended test package is clearly labeled **Nuitka** and is available as both a Windows
+  installer and portable ZIP.
+- The established **PyInstaller** installer and portable ZIP remain available in this transitional
+  beta so machine-specific behavior can be compared without changing application code.
+- Both builds use the same source, version, legal notices, dependency-license inventory, bundled
+  resources, and external-plugin layout.
+- Exact Python, backend, and dependency versions are recorded in separate build-environment files,
+  with every release artifact covered by `SHA256SUMS.txt`.
+
+## Included corrections
 
 - Map Studio now offers **Linear to destination**, which continues the edge slope across the full
   destination grid instead of stopping after the Limited linear distance.
@@ -20,7 +32,7 @@ software intended for testing and feedback.
 - Exact calibrated breakpoint values remain available through table cells and selection readouts;
   only the displayed 3D scale labels are coarsened.
 
-## Existing Beta 4 capabilities
+## Existing capabilities
 
 - Full files can expose separate **Partial BIN** and **Full BIN** definition sections when paired
   RomRaider definitions prove one consistent in-bounds mapping.

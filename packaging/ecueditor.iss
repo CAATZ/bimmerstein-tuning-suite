@@ -1,17 +1,20 @@
 #ifndef AppVersion
-  #define AppVersion "0.1.0b5"
+  #define AppVersion "0.1.0b6"
 #endif
 #ifndef AppDisplayVersion
-  #define AppDisplayVersion "0.1.0 Beta 5"
+  #define AppDisplayVersion "0.1.0 Beta 6"
 #endif
 #ifndef AppNumericVersion
-  #define AppNumericVersion "0.1.0.5"
+  #define AppNumericVersion "0.1.0.6"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\.tmp\release-build\dist\ecueditor"
 #endif
 #ifndef OutputDir
-  #define OutputDir "..\release\0.1.0b5"
+  #define OutputDir "..\release\0.1.0b6"
+#endif
+#ifndef PackageSuffix
+  #define PackageSuffix ""
 #endif
 
 [Setup]
@@ -32,7 +35,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 DisableProgramGroupPage=yes
 OutputDir={#OutputDir}
-OutputBaseFilename=BimmerStein-Tuning-Suite-{#AppVersion}-Windows-x64-Setup
+OutputBaseFilename=BimmerStein-Tuning-Suite-{#AppVersion}-Windows-x64{#PackageSuffix}-Setup
 SetupIconFile=..\resources\icons\app.ico
 UninstallDisplayIcon={app}\BimmerStein-Tuning-Suite-{#AppVersion}.ico
 LicenseFile={#SourceDir}\LICENSE
