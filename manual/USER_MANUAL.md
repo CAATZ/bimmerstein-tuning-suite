@@ -2,14 +2,14 @@
 
 **ECU Calibration and Data Logging**
 
-Version 0.1.0 Beta 8
+Version 0.1.0 Beta 9
 Windows x64
 
 BimmerStein Tuning Suite is a desktop calibration editor and live-data logger. The current beta
 focuses on BMW MS41 while retaining an extensible definition and plugin architecture for other
 platforms.
 
-This manual describes the Beta 8 release. Screenshots use synthetic demonstration data and do not
+This manual describes the Beta 9 release. Screenshots use synthetic demonstration data and do not
 contain a production ROM or proprietary definition.
 
 <!-- pagebreak -->
@@ -35,12 +35,12 @@ working as designed.
 
 ### Beta scope
 
-Beta 8 is intended for testing and feedback. DS2 polling has been exercised on hardware, but more
+Beta 9 is intended for testing and feedback. DS2 polling has been exercised on hardware, but more
 ECU versions, interfaces, Windows systems, and display-scaling combinations still need validation.
 Check multi-byte logger channels carefully because a channel definition may need explicit byte
 order information.
 
-Not implemented in Beta 8: ECU flashing, Subaru SSM, generic OBD-II or ELM327, J2534, and Bluetooth
+Not implemented in Beta 9: ECU flashing, Subaru SSM, generic OBD-II or ELM327, J2534, and Bluetooth
 transports.
 
 <!-- pagebreak -->
@@ -49,12 +49,12 @@ transports.
 
 ### Windows installer
 
-1. Download the Beta 8 Nuitka setup executable from the project release page. The PyInstaller setup
-   remains available in this transitional beta for comparison.
+1. Download either Beta 9 setup executable from the project release page. The `Nuitka` filename
+   suffix identifies the compiled build; both packages contain the same application and resources.
 2. Run the installer and choose the destination folder.
 3. Start **BimmerStein Tuning Suite** from the Start menu or desktop shortcut.
 
-The Beta 8 executables are not code-signed. Windows may show an unknown-publisher warning. Confirm
+The Beta 9 executables are not code-signed. Windows may show an unknown-publisher warning. Confirm
 that the filename and SHA-256 checksum match the release before continuing.
 
 ### Portable package
@@ -199,9 +199,10 @@ Map Studio works on a local snapshot until **Apply to _table name_** is chosen. 
 
 - **Linear** and shape-preserving **PCHIP** interpolation for curves.
 - **Bilinear** and shape-preserving **PCHIP** interpolation for two-axis maps.
-- **Hold edge values** and **Do not extrapolate** boundary safeguards.
-- **Linear to destination**, which continues the final source slope across the complete destination
-  grid, and **Limited linear**, which caps that continuation by a configurable number of edge intervals.
+- **Hold**, **Linear**, and **Disabled** boundary choices for curves and maps.
+- Map-only **Local trend (4 × 4)** and **Global trend** choices. Local trend fits the nearest
+  4 × 4 source neighborhood; Global trend fits the complete source table. Linear and both trend
+  methods continue across the complete destination grid.
 - Anomaly detection, selected-cell harmonic repair, whole-table smoothing with a mandatory preview, local undo/redo, difference views, slices, 3D review, and a safety summary.
 - Whole-table actions such as **Find anomalies**, **Smooth table**, and **Copy Entire Table** are
   available without selecting a cell. Selection-only repair and copy commands remain disabled until
@@ -221,10 +222,10 @@ creates evenly spaced destination axes by default, and interpolates the selected
 available cells. Switch to custom axes when specific breakpoints are required. Storage-backed axes
 must remain strictly monotonic after their real values are encoded; static axes cannot be expanded.
 
-Increasing a destination axis beyond the selected source range requires **Linear to destination**
-or **Limited linear**. Adding more breakpoints within the original range is interpolation, not
-extrapolation. Changing the source region, destination grid, interpolation method, boundary policy,
-or edge limit invalidates the current preview so stale results cannot be applied accidentally.
+Increasing a destination axis beyond the selected source range requires **Linear**, **Local trend
+(4 × 4)**, or **Global trend**. Adding more breakpoints within the original range is interpolation,
+not extrapolation. Changing the source region, destination grid, interpolation method, or boundary
+policy invalidates the current preview so stale results cannot be applied accidentally.
 
 Review the Result, Changes, visualizations, extrapolated-cell highlights, and safety summary before
 applying. Apply quantizes the axes and values first, then commits both atomically as one table undo
@@ -548,7 +549,7 @@ files.
 
 - Project: [github.com/CAATZ/bimmerstein-tuning-suite](https://github.com/CAATZ/bimmerstein-tuning-suite)
 - Issues: [Report a bug or request a feature](https://github.com/CAATZ/bimmerstein-tuning-suite/issues)
-- Release notes: [Beta 8 release notes](../RELEASE_NOTES.md)
+- Release notes: [Beta 9 release notes](../RELEASE_NOTES.md)
 - Licensing: [GNU GPL and third-party notices](../THIRD_PARTY_NOTICES.md)
 
 Useful bug reports include the ECU or ROM version, Windows version, display-scaling percentage,

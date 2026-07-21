@@ -676,26 +676,18 @@ class MapStudioDocument(QWidget):
         self.boundary_combo.setSizePolicy(
             QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
         )
-        self.boundary_combo.addItem("Hold edge values", "hold")
-        self.boundary_combo.addItem("Linear to destination", "linear_to_destination")
-        self.boundary_combo.addItem("Limited linear", "linear")
-        self.boundary_combo.addItem("Do not extrapolate", "disallow")
+        self.boundary_combo.addItem("Hold", "hold")
+        self.boundary_combo.addItem("Linear", "linear")
+        self.boundary_combo.addItem("Local trend (4 \u00d7 4)", "trend")
+        self.boundary_combo.addItem("Global trend", "global_trend")
+        self.boundary_combo.addItem("Disabled", "disallow")
         self.boundary_combo.setToolTip(
-            "Linear to destination continues the final source slope across the complete "
-            "target grid. Limited linear stops after the configured maximum distance."
-        )
-        self.edge_limit = QDoubleSpinBox()
-        self.edge_limit.setRange(0.05, 20.0)
-        self.edge_limit.setValue(1.0)
-        self.edge_limit.setSingleStep(0.25)
-        self.edge_limit.setToolTip(
-            "Maximum distance beyond each source edge. 1.00 continues the slope for one "
-            "final source interval, then holds that extrapolated value."
+            "Local trend uses a least-squares fit of the nearest 4 by 4 source cells; global "
+            "trend fits the whole source table. Hold, linear, and trend methods continue "
+            "across the complete destination grid."
         )
         method_layout.addRow("Method", self.method_combo)
-        method_layout.addRow("Boundary", self.boundary_combo)
-        method_layout.addRow("Maximum edge intervals", self.edge_limit)
-        self.edge_limit_label = method_layout.labelForField(self.edge_limit)
+        method_layout.addRow("Extrapolation", self.boundary_combo)
         self.expand_button = QPushButton("Expand Region to Full Grid")
         self.expand_button.setIcon(icon("interpolate"))
         self.expand_button.setToolTip(
@@ -758,9 +750,7 @@ class MapStudioDocument(QWidget):
         self.target_mode.currentIndexChanged.connect(self._target_mode_changed)
         self.target_mode.currentIndexChanged.connect(self._resampling_settings_changed)
         self.method_combo.currentIndexChanged.connect(self._resampling_settings_changed)
-        self.boundary_combo.currentIndexChanged.connect(self._boundary_changed)
         self.boundary_combo.currentIndexChanged.connect(self._resampling_settings_changed)
-        self.edge_limit.valueChanged.connect(self._resampling_settings_changed)
         self.target_x_text.textChanged.connect(self._resampling_settings_changed)
         self.target_y_text.textChanged.connect(self._resampling_settings_changed)
         self.x_min.valueChanged.connect(
@@ -794,7 +784,6 @@ class MapStudioDocument(QWidget):
         self.result_table.itemSelectionChanged.connect(self._refresh_edit_actions)
         self.changes_table.itemSelectionChanged.connect(self._refresh_edit_actions)
         self._target_mode_changed()
-        self._boundary_changed()
         self._refresh_edit_actions()
 
     @staticmethod
@@ -1197,6 +1186,10 @@ class MapStudioDocument(QWidget):
             )
             self._set_axis_fields(self.source_data.x, self.source_data.y)
         else:
+            for boundary in ("global_trend", "trend"):
+                index = self.boundary_combo.findData(boundary)
+                if index >= 0:
+                    self.boundary_combo.removeItem(index)
             self.curve_source = self.snapshot.as_curve()
             self.source_data = None
             self._source_history = UndoHistory(_calibration_equal)
@@ -1322,12 +1315,6 @@ class MapStudioDocument(QWidget):
         self.target_x_label.setVisible(custom)
         self.target_y_text.setVisible(custom and self.snapshot.kind == "map")
         self.target_y_label.setVisible(custom and self.snapshot.kind == "map")
-
-    def _boundary_changed(self, *_args) -> None:
-        visible = self.boundary_combo.currentData() == "linear"
-        self.edge_limit.setVisible(visible)
-        if self.edge_limit_label is not None:
-            self.edge_limit_label.setVisible(visible)
 
     def _resampling_settings_changed(self, *_args) -> None:
         if self.result is None and self.curve_result is None:
@@ -1577,7 +1564,6 @@ class MapStudioDocument(QWidget):
                     target_y,
                     method=method,
                     boundary=boundary,
-                    edge_limit=self.edge_limit.value(),
                 )
                 proposal = quantize_table_proposal(
                     self.table,
@@ -1619,7 +1605,6 @@ class MapStudioDocument(QWidget):
                     target_x,
                     method=method,
                     boundary=boundary,
-                    edge_limit=self.edge_limit.value(),
                 )
                 proposal = quantize_table_proposal(
                     self.table,

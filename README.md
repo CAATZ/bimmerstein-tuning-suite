@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b8"><strong>Download Beta 8</strong></a>
+  <a href="https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b9"><strong>Download Beta 9</strong></a>
   &nbsp;&middot;&nbsp;
   <a href="output/pdf/BimmerStein-Tuning-Suite-User-Manual.pdf">User Manual</a>
   &nbsp;&middot;&nbsp;
@@ -39,22 +39,21 @@ calibration workflows, but it is not a Git fork of RomRaider.
 
 ## Beta release
 
-The current public beta is **0.1.0 Beta 8** (`0.1.0b8`):
+The current public beta is **0.1.0 Beta 9** (`0.1.0b9`):
 
-[Download BimmerStein Tuning Suite 0.1.0 Beta 8](https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b8)
+[Download BimmerStein Tuning Suite 0.1.0 Beta 9](https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b9)
 
 The release provides:
 
-- A Nuitka Windows installer and portable ZIP (`Windows-x64-Nuitka-*`) for the new compiled build.
-- The established PyInstaller Windows installer and portable ZIP for direct comparison during this
-  transitional beta.
+- A PyInstaller Windows installer and portable ZIP.
+- A Nuitka Windows installer and portable ZIP (`Windows-x64-Nuitka-*`) as a compiled alternative.
 - A corresponding-source ZIP.
 - SHA-256 checksums and an exact build-environment inventory for each build backend.
 
 Both portable executables require the DLLs and resources beside them. Extract the complete ZIP
-before running one. New testers should start with the clearly labeled **Nuitka** package; the
-PyInstaller package remains available to compare any machine-specific behavior. The executables
-are not code-signed, so Windows may display an unknown-publisher warning.
+before running one. The two packages contain the same application and resources; the **Nuitka**
+suffix identifies only the compiled build backend. The executables are not code-signed, so Windows
+may display an unknown-publisher warning.
 
 ## Current capabilities
 

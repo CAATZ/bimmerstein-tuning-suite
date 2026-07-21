@@ -15,7 +15,7 @@ from .model import (
     validate_map_axis,
 )
 
-_LINEAR_BOUNDARIES = {"linear", "linear_to_destination"}
+_TREND_BOUNDARIES = {"trend", "global_trend"}
 
 
 def even_axis(start: float, stop: float, count: int) -> np.ndarray:
@@ -75,14 +75,6 @@ def _curve_outside(source: CurveData, x: np.ndarray) -> np.ndarray:
     return (x < source.x[0] - tolerance) | (x > source.x[-1] + tolerance)
 
 
-def _limited(axis: np.ndarray, target: np.ndarray, limit: float) -> np.ndarray:
-    return np.clip(
-        target,
-        axis[0] - limit * (axis[1] - axis[0]),
-        axis[-1] + limit * (axis[-1] - axis[-2]),
-    )
-
-
 def _bilinear(source: MapData, target_x: np.ndarray, target_y: np.ndarray) -> np.ndarray:
     xi = np.clip(np.searchsorted(source.x, target_x, side="right") - 1, 0, source.x.size - 2)
     yi = np.clip(np.searchsorted(source.y, target_y, side="right") - 1, 0, source.y.size - 2)
@@ -101,6 +93,59 @@ def _bilinear(source: MapData, target_x: np.ndarray, target_y: np.ndarray) -> np
     )
 
 
+def _nearest_axis_indices(axis: np.ndarray, value: float, count: int = 4) -> np.ndarray:
+    return np.sort(np.argsort(np.abs(axis - value), kind="stable")[: min(count, axis.size)])
+
+
+def _least_squares_trend(
+    source: MapData,
+    target_x: np.ndarray,
+    target_y: np.ndarray,
+    outside: np.ndarray,
+    *,
+    whole_table: bool,
+) -> np.ndarray:
+    boundary_x = np.clip(target_x, source.x[0], source.x[-1])
+    boundary_y = np.clip(target_y, source.y[0], source.y[-1])
+    values = _bilinear(source, boundary_x, boundary_y)
+    for row, column in np.argwhere(outside):
+        anchor_x, anchor_y = float(boundary_x[column]), float(boundary_y[row])
+        x_indexes = (
+            np.arange(source.x.size)
+            if whole_table
+            else _nearest_axis_indices(source.x, anchor_x)
+        )
+        y_indexes = (
+            np.arange(source.y.size)
+            if whole_table
+            else _nearest_axis_indices(source.y, anchor_y)
+        )
+        local_x, local_y = source.x[x_indexes], source.y[y_indexes]
+        x_scale = max(float(np.max(np.abs(local_x - anchor_x))), np.finfo(float).eps)
+        y_scale = max(float(np.max(np.abs(local_y - anchor_y))), np.finfo(float).eps)
+        normalized_x = (local_x - anchor_x) / x_scale
+        normalized_y = (local_y - anchor_y) / y_scale
+        yy, xx = np.meshgrid(normalized_y, normalized_x, indexing="ij")
+        design = np.column_stack((np.ones(xx.size), xx.ravel(), yy.ravel(), (xx * yy).ravel()))
+        weights = (
+            np.ones(xx.size)
+            if whole_table
+            else 1.0 / (1.0 + xx.ravel() ** 2 + yy.ravel() ** 2)
+        )
+        root_weights = np.sqrt(weights)
+        coefficients, *_ = np.linalg.lstsq(
+            design * root_weights[:, None],
+            source.z[np.ix_(y_indexes, x_indexes)].ravel() * root_weights,
+            rcond=None,
+        )
+        dx = (float(target_x[column]) - anchor_x) / x_scale
+        dy = (float(target_y[row]) - anchor_y) / y_scale
+        values[row, column] += (
+            coefficients[1] * dx + coefficients[2] * dy + coefficients[3] * dx * dy
+        )
+    return values
+
+
 def _pchip_map(source: MapData, x: np.ndarray, y: np.ndarray) -> np.ndarray:
     if source.x.size < 4 or source.y.size < 4:
         raise MapValidationError(
@@ -113,41 +158,20 @@ def _pchip_map(source: MapData, x: np.ndarray, y: np.ndarray) -> np.ndarray:
     return interpolator(np.column_stack((yy.ravel(), xx.ravel()))).reshape(yy.shape)
 
 
-def _evaluation_axes(
-    x: np.ndarray,
-    y: np.ndarray,
-    target_x: np.ndarray,
-    target_y: np.ndarray,
-    boundary: str,
-    edge_limit: float,
-) -> tuple[np.ndarray, np.ndarray]:
-    if boundary == "hold":
-        return np.clip(target_x, x[0], x[-1]), np.clip(target_y, y[0], y[-1])
-    if boundary == "linear_to_destination":
-        return target_x, target_y
-    if boundary == "linear":
-        if edge_limit <= 0:
-            raise MapValidationError("Maximum extrapolation distance must be greater than zero.")
-        return _limited(x, target_x, edge_limit), _limited(y, target_y, edge_limit)
-    return target_x, target_y
-
-
 def resample_map(
     source: MapData,
     target_x,
     target_y,
     method: str = "bilinear",
     boundary: str = "hold",
-    edge_limit: float = 1.0,
     **legacy,
 ) -> ResampleResult:
     boundary = legacy.pop("extrapolation", boundary)
-    edge_limit = legacy.pop("maximum_edge_intervals", edge_limit)
     if legacy:
         raise TypeError(f"Unexpected arguments: {', '.join(legacy)}")
     if method not in {"bilinear", "pchip"}:
         raise MapValidationError(f"Unknown interpolation method: {method}.")
-    if boundary not in {"hold", *_LINEAR_BOUNDARIES, "disallow"}:
+    if boundary not in {"hold", "linear", *_TREND_BOUNDARIES, "disallow"}:
         raise MapValidationError(f"Unknown boundary policy: {boundary}.")
     requested_x = validate_map_axis(target_x, "Target X")
     requested_y = validate_map_axis(target_y, "Target Y")
@@ -159,14 +183,11 @@ def resample_map(
         raise MapValidationError(
             f"Target axes create {int(np.count_nonzero(outside))} cells outside the source range."
         )
-    eval_x, eval_y = _evaluation_axes(
-        source_ascending.x,
-        source_ascending.y,
-        target_x_ascending,
-        target_y_ascending,
-        boundary,
-        edge_limit,
-    )
+    if boundary == "hold":
+        eval_x = np.clip(target_x_ascending, source_ascending.x[0], source_ascending.x[-1])
+        eval_y = np.clip(target_y_ascending, source_ascending.y[0], source_ascending.y[-1])
+    else:
+        eval_x, eval_y = target_x_ascending, target_y_ascending
     bilinear = _bilinear(source_ascending, eval_x, eval_y)
     if method == "bilinear":
         values = bilinear.copy()
@@ -174,8 +195,17 @@ def resample_map(
         pchip_x = np.clip(target_x_ascending, source_ascending.x[0], source_ascending.x[-1])
         pchip_y = np.clip(target_y_ascending, source_ascending.y[0], source_ascending.y[-1])
         values = _pchip_map(source_ascending, pchip_x, pchip_y)
-        if boundary in _LINEAR_BOUNDARIES:
+        if boundary == "linear":
             values[outside] = bilinear[outside]
+    if boundary in _TREND_BOUNDARIES and np.any(outside):
+        trend = _least_squares_trend(
+            source_ascending,
+            eval_x,
+            eval_y,
+            outside,
+            whole_table=boundary == "global_trend",
+        )
+        values[outside] = trend[outside]
     if requested_y[0] > requested_y[-1]:
         values, bilinear, outside = values[::-1, :], bilinear[::-1, :], outside[::-1, :]
     if requested_x[0] > requested_x[-1]:
@@ -205,16 +235,14 @@ def resample_curve(
     target_x,
     method: str = "linear",
     boundary: str = "hold",
-    edge_limit: float = 1.0,
     **legacy,
 ) -> CurveResampleResult:
     boundary = legacy.pop("extrapolation", boundary)
-    edge_limit = legacy.pop("maximum_edge_intervals", edge_limit)
     if legacy:
         raise TypeError(f"Unexpected arguments: {', '.join(legacy)}")
     if method not in {"linear", "pchip"}:
         raise MapValidationError(f"Unknown curve interpolation method: {method}.")
-    if boundary not in {"hold", *_LINEAR_BOUNDARIES, "disallow"}:
+    if boundary not in {"hold", "linear", "disallow"}:
         raise MapValidationError(f"Unknown boundary policy: {boundary}.")
     requested = validate_axis(target_x, "Target X")
     source_ascending = collapse_duplicate_curve(source).curve_data.ascending()
@@ -226,12 +254,6 @@ def resample_curve(
         )
     if boundary == "hold":
         evaluation = np.clip(ascending_target, source_ascending.x[0], source_ascending.x[-1])
-    elif boundary == "linear":
-        if edge_limit <= 0:
-            raise MapValidationError("Maximum extrapolation distance must be greater than zero.")
-        evaluation = _limited(source_ascending.x, ascending_target, edge_limit)
-    elif boundary == "linear_to_destination":
-        evaluation = ascending_target
     else:
         evaluation = ascending_target
     linear = _linear_curve(source_ascending, evaluation)
@@ -249,7 +271,7 @@ def resample_curve(
             ),
             dtype=float,
         )
-        if boundary in _LINEAR_BOUNDARIES:
+        if boundary == "linear":
             values[outside] = linear[outside]
     if requested[0] > requested[-1]:
         values, linear, outside = values[::-1], linear[::-1], outside[::-1]
