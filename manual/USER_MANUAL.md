@@ -2,14 +2,14 @@
 
 **ECU Calibration and Data Logging**
 
-Version 0.1.0 Beta 9
+Version 0.1.0 Beta 10
 Windows x64
 
 BimmerStein Tuning Suite is a desktop calibration editor and live-data logger. The current beta
 focuses on BMW MS41 while retaining an extensible definition and plugin architecture for other
 platforms.
 
-This manual describes the Beta 9 release. Screenshots use synthetic demonstration data and do not
+This manual describes the Beta 10 release. Screenshots use synthetic demonstration data and do not
 contain a production ROM or proprietary definition.
 
 <!-- pagebreak -->
@@ -35,12 +35,12 @@ working as designed.
 
 ### Beta scope
 
-Beta 9 is intended for testing and feedback. DS2 polling has been exercised on hardware, but more
+Beta 10 is intended for testing and feedback. DS2 polling has been exercised on hardware, but more
 ECU versions, interfaces, Windows systems, and display-scaling combinations still need validation.
 Check multi-byte logger channels carefully because a channel definition may need explicit byte
 order information.
 
-Not implemented in Beta 9: ECU flashing, Subaru SSM, generic OBD-II or ELM327, J2534, and Bluetooth
+Not implemented in Beta 10: ECU flashing, Subaru SSM, generic OBD-II or ELM327, J2534, and Bluetooth
 transports.
 
 <!-- pagebreak -->
@@ -49,12 +49,12 @@ transports.
 
 ### Windows installer
 
-1. Download either Beta 9 setup executable from the project release page. The `Nuitka` filename
+1. Download either Beta 10 setup executable from the project release page. The `Nuitka` filename
    suffix identifies the compiled build; both packages contain the same application and resources.
 2. Run the installer and choose the destination folder.
 3. Start **BimmerStein Tuning Suite** from the Start menu or desktop shortcut.
 
-The Beta 9 executables are not code-signed. Windows may show an unknown-publisher warning. Confirm
+The Beta 10 executables are not code-signed. Windows may show an unknown-publisher warning. Confirm
 that the filename and SHA-256 checksum match the release before continuing.
 
 ### Portable package
@@ -124,7 +124,8 @@ definition pairs stay in the safe single-section path.
 1. Select **File > Open ROM** or press **Ctrl+O**.
 2. Choose a `.bin` or supported `.hex` file.
 3. Confirm the ROM identification and definition status in the tree and status bar.
-4. Expand the required category, then double-click a table or parameter.
+4. Expand the required category, then click a table or parameter. Click the same entry again to
+   close its window.
 
 The parameter tree starts collapsed so large definitions remain manageable. Use the filter field to
 show only names matching a regular expression. Press **Ctrl+K** to open **Go to Table**, which
@@ -248,7 +249,9 @@ heatmap values.
 
 **Copy Sel** copies the selected rectangle as tab-separated values. **Copy Table** copies the full
 grid. Paste begins at the current cell and supports rectangular data copied from compatible editors
-or spreadsheets. Confirm dimensions, axis orientation, units, and rounding after every paste.
+or spreadsheets. A compatible full-table paste overwrites editable axes as well as data cells;
+selection-only values leave the axes unchanged. Confirm dimensions, axis orientation, units, and
+rounding after every paste.
 
 <!-- pagebreak -->
 
@@ -549,7 +552,7 @@ files.
 
 - Project: [github.com/CAATZ/bimmerstein-tuning-suite](https://github.com/CAATZ/bimmerstein-tuning-suite)
 - Issues: [Report a bug or request a feature](https://github.com/CAATZ/bimmerstein-tuning-suite/issues)
-- Release notes: [Beta 9 release notes](../RELEASE_NOTES.md)
+- Release notes: [Beta 10 release notes](../RELEASE_NOTES.md)
 - Licensing: [GNU GPL and third-party notices](../THIRD_PARTY_NOTICES.md)
 
 Useful bug reports include the ECU or ROM version, Windows version, display-scaling percentage,

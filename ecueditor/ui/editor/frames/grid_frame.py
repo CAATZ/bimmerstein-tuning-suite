@@ -20,11 +20,12 @@ def _clamp_range_text(table) -> str:
     return f"range {fmt(lo)} … {fmt(hi)} {cell.scale.units}".rstrip()
 
 
-def _needs_transpose(tdef) -> bool:
+def _needs_transpose(table) -> bool:
     # Column-shaped tables (1xN) always read better horizontally (spec §5/B3). In real data only
     # 2D curve defs are column-shaped (3D maps are full grids), so this shape test is equivalent to
     # the spec's "2D column def" wording while also covering the type='3D' column test fixture.
-    return (tdef.size_x in (None, 1)) and (tdef.size_y or 0) > 1
+    sx, sy = table.shape()
+    return sx == 1 and sy > 1
 
 
 class _RotatedLabel(QWidget):
@@ -51,7 +52,7 @@ class GridTableFrame(QWidget):
         self.setObjectName("tableFrame")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         tdef = table.definition
-        transposed = _needs_transpose(tdef)
+        transposed = _needs_transpose(table)
         self.header = FrameHeader(tdef)
         model = TableGridModel(table, presentation_transposed=transposed)
         self.grid = TableGridWidget(model)

@@ -1,9 +1,10 @@
-"""Definition-inheritance chain walk + role-based axis merge.
+"""Definition-inheritance chain walk + RomRaider-compatible axis merge.
 
 Ported from `ms41def.py` (`chain_for`, `pick_rom`, `_ancestor_chain`, `resolve_tables`,
 lines ~93-183) with the same three laws: BASE-vs-derived scoping (most-derived
-non-None attribute wins per table name), axes merged by ROLE (X/Y) rather than
-name, and `omit="true"` deleting a table from the effective set. The chain-walk
+non-None attribute wins per table name), 3D axes merged by ROLE (X/Y) rather than
+name, 2D's single axis merged across either accepted role tag, and `omit="true"`
+deleting a table from the effective set. The chain-walk
 functions (`_ancestor_chain`, `_resolved_addr_count`, `pick_rom`, `chain_for`) are
 ported verbatim; the per-key merge in `resolve_tables` is extended per the plan to
 also accumulate description/userlevel/locked/logparam, Switch `<state>` children,
@@ -210,16 +211,21 @@ def _resolve_table_layers(layers: list[ET.Element]) -> dict[str, dict]:
                 role = _role(ax.get("type"))
                 if role is None:
                     continue
-                a = e["axes"].setdefault(role, {})
+                # RomRaider Table2D owns one axis and accepts either X/Y tags.  Some MS41
+                # derived definitions change that tag while supplying only a new address.
+                # Keep one accumulator so the base metadata follows the derived role.
+                key = "2D" if e.get("type") == "2D" else role
+                a = e["axes"].setdefault(key, {})
                 _merge_axis(a, ax)
     return eff
 
 
 def resolve_tables(by_xid: dict[str, list[ET.Element]], xid: str) -> tuple[dict[str, dict], list[str]]:
     """Return ({name: merged-attrs}, chain) for the CAL-ID `xid`, merging the chain
-    (most-derived wins per key), axes keyed by ROLE (X/Y). Mirrors ms41def.resolve_tables
-    but additionally accumulates states/bits/description/userlevel/locked/logparam so the
-    frozen dataclasses can be built from this dict in one shot."""
+    (most-derived wins per key), 3D axes keyed by role, and 2D's single axis across
+    either role tag. Mirrors ms41def.resolve_tables but additionally accumulates
+    states/bits/description/userlevel/locked/logparam so the frozen dataclasses can
+    be built from this dict in one shot."""
     ch = chain_for(by_xid, xid)
     layers = [rom_el for layer in ch if (rom_el := pick_rom(by_xid, layer)) is not None]
     eff = _resolve_table_layers(layers)
@@ -236,8 +242,16 @@ def _build_table(e: dict) -> TableDef:
     ttype = _table_type(e.get("type"))
     axes = e.get("axes", {})
     nm = e["name"]
-    x_axis = _build_axis(axes["X"], "X", _dec(e.get("sizex")), _dec(e.get("sizey")), nm) if "X" in axes else None
-    y_axis = _build_axis(axes["Y"], "Y", _dec(e.get("sizex")), _dec(e.get("sizey")), nm) if "Y" in axes else None
+    if ttype == "2D" and "2D" in axes:
+        curve = axes["2D"]
+        curve_role = _role(curve.get("type")) or "Y"
+        axis = _build_axis(
+            curve, curve_role, _dec(e.get("sizex")), _dec(e.get("sizey")), nm
+        )
+        x_axis, y_axis = (axis, None) if curve_role == "X" else (None, axis)
+    else:
+        x_axis = _build_axis(axes["X"], "X", _dec(e.get("sizex")), _dec(e.get("sizey")), nm) if "X" in axes else None
+        y_axis = _build_axis(axes["Y"], "Y", _dec(e.get("sizex")), _dec(e.get("sizey")), nm) if "Y" in axes else None
 
     userlevel = e.get("userlevel")
     locked = e.get("locked")

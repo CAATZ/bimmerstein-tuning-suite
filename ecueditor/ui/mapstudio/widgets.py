@@ -1306,8 +1306,13 @@ class ArrayTableWidget(QTableWidget):
         if not self._editable or not text.strip():
             return 0
         lines = text.splitlines()
-        header = lines[0].strip() if lines else ""
-        body = lines[1:] if header.startswith("[") else lines
+        first = lines[0].lstrip() if lines else ""
+        marker, separator, tail = first.partition("]")
+        header = marker + separator if marker.startswith("[") and separator else first.strip()
+        body = lines[1:] if separator and marker.startswith("[") else lines
+        tail = tail.lstrip("\t ")
+        if tail:
+            body.insert(0, tail)
         selected = self._selected_coordinates()
         anchor = min(selected, default=(0, 0))
         proposed = self._array.copy()
@@ -1329,7 +1334,18 @@ class ArrayTableWidget(QTableWidget):
                     place(row0 + row_offset, column0 + column_offset, token)
         elif header == "[Table3D]":
             data_lines = body
-            if data_lines and data_lines[0].startswith("\t"):
+            has_x_row = bool(
+                data_lines
+                and (
+                    data_lines[0].startswith("\t")
+                    or (
+                        len(data_lines) > 1
+                        and len(data_lines[1].split("\t"))
+                        > len(data_lines[0].split("\t"))
+                    )
+                )
+            )
+            if has_x_row:
                 data_lines = data_lines[1:]
             for row, line in enumerate(data_lines):
                 tokens = line.split("\t")
@@ -1351,7 +1367,11 @@ class ArrayTableWidget(QTableWidget):
         unique = sorted(set(touched))
         if not unique:
             return 0
-        self._commit_values(proposed, unique)
+        before = self._array.copy()
+        if not self._commit_values(proposed, unique):
+            return 0
+        if np.array_equal(self._array, before):
+            return 0
         mask = np.zeros(self._array.shape, dtype=bool)
         for row, column in unique:
             mask[row, column] = True

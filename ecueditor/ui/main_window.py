@@ -830,6 +830,10 @@ class MainWindow(QMainWindow):
 
     # --- table sub-windows -----------------------------------------------------
     def _on_table_activated(self, rom, table) -> None:
+        existing = self._open_frames.get(self._table_frame_key(rom, table))
+        if existing is not None and existing in self.documents.documents():
+            self.documents.close_document(existing)
+            return
         self.open_table(rom, table)
 
     def open_table(self, rom, table_or_name) -> None:
@@ -939,15 +943,22 @@ class MainWindow(QMainWindow):
             return
 
         from ecueditor.ui.design.icons import icon
+        from ecueditor.core.mapstudio import MapValidationError
         from ecueditor.ui.mapstudio.document import MapStudioDocument
 
         selection = [doc.grid.model().cell_xy(index) for index in doc.grid.selectedIndexes()]
-        studio = MapStudioDocument(
-            doc.rom,
-            doc.table,
-            initial_selection=selection,
-            display_settings=self._services.settings,
-        )
+        try:
+            studio = MapStudioDocument(
+                doc.rom,
+                doc.table,
+                initial_selection=selection,
+                display_settings=self._services.settings,
+            )
+        except MapValidationError as exc:
+            from PySide6.QtWidgets import QMessageBox
+
+            QMessageBox.information(self, "Map Studio", f"Map Studio unavailable: {exc}")
+            return
         studio.applyRequested.connect(
             lambda proposal, target=studio: self._apply_map_studio(target, proposal)
         )

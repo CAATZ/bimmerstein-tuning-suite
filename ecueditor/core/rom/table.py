@@ -27,9 +27,14 @@ class Table:
         self.x_axis = x_axis
         self.y_axis = y_axis
     def shape(self) -> tuple[int, int]:
+        if self.definition.type == "2D":
+            count = len(self.cells)
+            if self.definition.y_axis is not None and self.definition.x_axis is None:
+                return (1, count)
+            return (count, 1)
         return (self.definition.size_x or 1, self.definition.size_y or 1)
     def cell_at(self, x: int, y: int) -> DataCell:
-        sx = self.definition.size_x or 1
+        sx, _sy = self.shape()
         return self.cells[y * sx + x]
     def is_changed(self) -> bool:
         if any(c.is_changed() for c in self.cells):
@@ -101,9 +106,16 @@ class Table:
 
     def paste_text(self, text: str, anchor: int = 0) -> None:
         lines = text.splitlines()
-        if lines and lines[0].startswith("[Table"):
+        table_header = bool(lines and lines[0].startswith("[Table"))
+        if table_header:
+            tail = lines[0].partition("]")[2]
             lines = lines[1:]
-        if self.definition.type == "3D" and (self.x_axis or self.y_axis) and len(lines) >= 2:
+            tail = tail.lstrip("\t ")
+            if tail:
+                lines.insert(0, tail)
+        axis_table = table_header or bool(lines and lines[0].startswith("\t"))
+        if axis_table and self.definition.type == "3D" \
+                and (self.x_axis or self.y_axis) and len(lines) >= 2:
             # Full-grid 3D paste, tolerant of the degraded shapes to_text emits: the x-axis
             # header line exists only when the X axis does; the leading per-row y value only
             # when the Y axis does. (A 3D table with NEITHER axis roundtrips via the flat
@@ -126,7 +138,8 @@ class Table:
                 for c, v in enumerate(vals[:sx]):
                     if v not in ("", "x"):
                         self._paste_cell(self.cell_at(c, r), v)
-        elif self.definition.type == "2D" and (axis := self.x_axis or self.y_axis) \
+        elif table_header and self.definition.type == "2D" \
+                and (axis := self.x_axis or self.y_axis) \
                 and len(lines) >= 2:
             for cell, value in zip(axis.cells, lines[0].split("\t")):
                 if value not in ("", "x"):

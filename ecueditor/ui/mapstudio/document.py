@@ -88,6 +88,63 @@ def _calibration_equal(left: CalibrationData, right: CalibrationData) -> bool:
     return False
 
 
+def _clipboard_fills_grid(text: str, rows: int, columns: int) -> bool:
+    lines = text.splitlines()
+    if not lines:
+        return False
+    header = lines[0].strip()
+    if header.startswith("["):
+        lines = lines[1:]
+    if header == "[Table3D]" and lines and lines[0].startswith("\t"):
+        lines = lines[1:]
+    elif header in {"[Table1D]", "[Table2D]"} and lines:
+        lines = lines[-1:]
+    if len(lines) < rows:
+        return False
+    for line in lines[:rows]:
+        tokens = line.split("\t")
+        if len(tokens) < columns:
+            return False
+        try:
+            values = [float(token) for token in tokens[-columns:]]
+        except ValueError:
+            return False
+        if not np.all(np.isfinite(values)):
+            return False
+    return True
+
+
+def _synchronize_map_values(
+    current: MapData, proposed: np.ndarray, *, complete_grid: bool
+) -> np.ndarray:
+    collapsed = collapse_duplicate_map(current)
+    if not complete_grid:
+        return collapsed.synchronize_values(proposed)
+    rows = [
+        int(np.flatnonzero(collapsed.y_inverse == index)[0])
+        for index in range(collapsed.map_data.rows)
+    ]
+    columns = [
+        int(np.flatnonzero(collapsed.x_inverse == index)[0])
+        for index in range(collapsed.map_data.columns)
+    ]
+    return collapsed.expand_values(np.asarray(proposed)[np.ix_(rows, columns)])
+
+
+def _synchronize_curve_values(
+    current: CurveData, proposed: np.ndarray, *, complete_grid: bool
+) -> np.ndarray:
+    collapsed = collapse_duplicate_curve(current)
+    values = np.asarray(proposed, dtype=float).reshape(-1)
+    if not complete_grid:
+        return collapsed.synchronize_values(values)
+    indexes = [
+        int(np.flatnonzero(collapsed.x_inverse == index)[0])
+        for index in range(collapsed.curve_data.size)
+    ]
+    return collapsed.expand_values(values[indexes])
+
+
 class _CurrentPageStack(QStackedWidget):
     """Size a mode switch from its active page, not the hidden custom-axis editor."""
 
@@ -225,6 +282,7 @@ class MapStudioDocument(QWidget):
         self._visual_windows: list[QDialog] = []
         self._updating_table = False
         self._updating_axis_fields = False
+        self._complete_grid_paste = False
         self._automatic_x_bounds: tuple[float, float] = (
             float(self.snapshot.x[0]),
             float(self.snapshot.x[-1]),
@@ -973,11 +1031,19 @@ class MapStudioDocument(QWidget):
     def paste_active(self) -> bool:
         active = self._active_table()
         before = active.values()
-        count = active.paste_values_text(QApplication.clipboard().text())
+        text = QApplication.clipboard().text()
+        self._complete_grid_paste = _clipboard_fills_grid(
+            text, active.rowCount(), active.columnCount()
+        )
+        try:
+            count = active.paste_values_text(text)
+        finally:
+            self._complete_grid_paste = False
         if count < 1:
-            self.status_label.setText(
-                "Nothing was pasted. Select an editable Source or Result destination."
-            )
+            if self.status_chip.text() != "CHECK INPUT":
+                self.status_label.setText(
+                    "Nothing was pasted. Select an editable Source or Result destination."
+                )
             return False
         if np.array_equal(before, active.values()):
             # A synchronous document validator may reject and restore the edit while
@@ -1731,8 +1797,10 @@ class MapStudioDocument(QWidget):
             proposal = quantize_table_proposal(self.table, values)
             if self.snapshot.kind == "map":
                 assert self.source_data is not None
-                synchronized = collapse_duplicate_map(self.source_data).synchronize_values(
-                    proposal.values
+                synchronized = _synchronize_map_values(
+                    self.source_data,
+                    proposal.values,
+                    complete_grid=self._complete_grid_paste,
                 )
                 # Mirrored physical padding cells are part of the same logical
                 # calibration bin. Quantize the complete synchronized proposal once
@@ -1744,9 +1812,11 @@ class MapStudioDocument(QWidget):
                 self._source_history.record(self.source_data)
             else:
                 assert self.curve_source is not None
-                synchronized = collapse_duplicate_curve(
-                    self.curve_source
-                ).synchronize_values(np.asarray(proposal.values, dtype=float).reshape(-1))
+                synchronized = _synchronize_curve_values(
+                    self.curve_source,
+                    proposal.values,
+                    complete_grid=self._complete_grid_paste,
+                )
                 proposal = quantize_table_proposal(self.table, synchronized)
                 self.curve_source = CurveData(
                     self.curve_source.x, proposal.values, self.curve_source.name
@@ -1772,9 +1842,11 @@ class MapStudioDocument(QWidget):
             current: CalibrationData
             if self.result is not None:
                 proposal = quantize_table_proposal(self.table, values)
-                synchronized = collapse_duplicate_map(
-                    self.result.map_data
-                ).synchronize_values(proposal.values)
+                synchronized = _synchronize_map_values(
+                    self.result.map_data,
+                    proposal.values,
+                    complete_grid=self._complete_grid_paste,
+                )
                 proposal = quantize_table_proposal(self.table, synchronized)
                 current = MapData(
                     self.result.map_data.x,
@@ -1784,9 +1856,11 @@ class MapStudioDocument(QWidget):
                 )
             elif self.curve_result is not None:
                 proposal = quantize_table_proposal(self.table, values)
-                synchronized = collapse_duplicate_curve(
-                    self.curve_result.curve_data
-                ).synchronize_values(np.asarray(proposal.values, dtype=float).reshape(-1))
+                synchronized = _synchronize_curve_values(
+                    self.curve_result.curve_data,
+                    proposal.values,
+                    complete_grid=self._complete_grid_paste,
+                )
                 proposal = quantize_table_proposal(self.table, synchronized)
                 current = CurveData(
                     self.curve_result.curve_data.x,
