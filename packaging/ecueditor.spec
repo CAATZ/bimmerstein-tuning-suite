@@ -38,6 +38,7 @@ hiddenimports += [
 # are future-proofing for asset types not currently under ecueditor/ itself (resources/ already
 # covers icons/fonts via the rglob).
 datas = collect_data_files("ecueditor", includes=["**/*.qss", "**/*.png", "**/*.svg"])
+datas += collect_data_files("ecueditor.core.maf_scaling", includes=["data/*.json"])
 _res = ROOT / "resources"
 if _res.is_dir():
     datas += [(str(p), str(p.parent.relative_to(ROOT))) for p in _res.rglob("*")

@@ -38,6 +38,9 @@ namespaces = false
 [tool.setuptools.dynamic]
 version = {attr = "ecueditor.__version__"}
 
+[tool.setuptools.package-data]
+"ecueditor.core.maf_scaling" = ["data/*.json"]
+
 [tool.setuptools.data-files]
 "share/bimmerstein-tuning-suite/resources/icons" = [
     "resources/icons/*.svg",

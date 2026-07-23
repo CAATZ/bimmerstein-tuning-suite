@@ -61,6 +61,7 @@ from ecueditor.ui.mapstudio.widgets import (
     ArrayLegend,
     ArrayTableWidget,
     TableZoomControls,
+    content_sized_document_hint,
 )
 from ecueditor.ui.workspace.status_chips import Chip
 
@@ -862,58 +863,7 @@ class MapStudioDocument(QWidget):
         return page
 
     def sizeHint(self) -> QSize:
-        root = self.layout()
-        workspace = self.splitter.widget(0)
-        if workspace is None:
-            return super().sizeHint().expandedTo(self.minimumSizeHint())
-        workspace_layout = workspace.layout()
-        if root is None or workspace_layout is None:
-            return super().sizeHint().expandedTo(self.minimumSizeHint())
-
-        workspace_margins = workspace_layout.contentsMargins()
-        workspace_items: list[QWidget] = []
-        for index in range(workspace_layout.count()):
-            item = workspace_layout.itemAt(index)
-            if item is None:
-                continue
-            widget = item.widget()
-            if widget is not None:
-                workspace_items.append(widget)
-        workspace_width = max(
-            (widget.sizeHint().width() for widget in workspace_items),
-            default=0,
-        ) + workspace_margins.left() + workspace_margins.right()
-        workspace_height = sum(widget.sizeHint().height() for widget in workspace_items)
-        workspace_height += workspace_margins.top() + workspace_margins.bottom()
-        workspace_height += max(0, len(workspace_items) - 1) * workspace_layout.spacing()
-
-        inspector_width = max(
-            self.inspector_scroll.minimumWidth(),
-            min(self.inspector_scroll.maximumWidth(), 290),
-        )
-        splitter_width = workspace_width + inspector_width + self.splitter.handleWidth()
-        splitter_height = workspace_height
-
-        root_margins = root.contentsMargins()
-        child_hints: list[QSize] = []
-        for index in range(root.count()):
-            item = root.itemAt(index)
-            if item is None:
-                continue
-            widget = item.widget()
-            if widget is None:
-                continue
-            child_hints.append(
-                QSize(splitter_width, splitter_height)
-                if widget is self.splitter
-                else widget.sizeHint()
-            )
-        width = max((hint.width() for hint in child_hints), default=0)
-        width += root_margins.left() + root_margins.right()
-        height = sum(hint.height() for hint in child_hints)
-        height += root_margins.top() + root_margins.bottom()
-        height += max(0, len(child_hints) - 1) * root.spacing()
-        return QSize(width, height).expandedTo(self.minimumSizeHint())
+        return content_sized_document_hint(self, self.splitter, self.inspector_scroll)
 
     def minimumSizeHint(self) -> QSize:
         return QSize(680, 420)

@@ -21,6 +21,7 @@ class TableMenuBar(QWidget):
     only the presentation (chips instead of Edit/Compare menus) changed."""
 
     mapStudioRequested = Signal()
+    mafScalingRequested = Signal()
 
     def __init__(self, grid: TableGridWidget, parent=None,
                  roms_provider: Callable[[], list] | None = None) -> None:
@@ -43,6 +44,7 @@ class TableMenuBar(QWidget):
         self.action_map_studio = QAction(
             "Map Studio", self, shortcut=QKeySequence("Ctrl+Shift+M")
         )
+        self.action_maf_scaling = QAction("MAF Scale", self)
         self.action_undo_sel.setToolTip("Undo Last Change (Ctrl+Z)")
         self.action_redo.setToolTip("Redo Last Change (Ctrl+Y)")
         self.action_undo_all.setToolTip("Undo All Changes (Ctrl+Shift+Z)")
@@ -52,6 +54,9 @@ class TableMenuBar(QWidget):
         self.action_paste.setToolTip("Paste (Ctrl+V)")
         self.action_interpolate.setToolTip("Interpolate Selection (Shift+I)")
         self.action_map_studio.setToolTip("Open Map Studio (Ctrl+Shift+M)")
+        self.action_maf_scaling.setToolTip(
+            "Scale a catalog MAF curve into this 256-cell table"
+        )
         self.action_undo_sel.setIcon(icon("undo"))
         self.action_redo.setIcon(icon("refresh"))
         self.action_undo_all.setIcon(icon("undo-all"))
@@ -61,10 +66,14 @@ class TableMenuBar(QWidget):
         self.action_paste.setIcon(icon("paste"))
         self.action_interpolate.setIcon(icon("interpolate"))
         self.action_map_studio.setIcon(icon("cube"))
+        self.action_maf_scaling.setIcon(icon("logger"))
         table = grid.model().table
         self.action_map_studio.setEnabled(
             len(table.cells) > 1 and table.definition.type not in {"Switch", "Bitwise"}
         )
+        from ecueditor.core.maf_scaling import is_manual_maf_candidate
+
+        self.action_maf_scaling.setEnabled(is_manual_maf_candidate(table))
 
         self.action_undo_sel.triggered.connect(self._undo_last)
         self.action_redo.triggered.connect(self._redo_last)
@@ -75,6 +84,7 @@ class TableMenuBar(QWidget):
         self.action_paste.triggered.connect(self._paste)
         self.action_interpolate.triggered.connect(self._interpolate_selection)
         self.action_map_studio.triggered.connect(self.mapStudioRequested)
+        self.action_maf_scaling.triggered.connect(self.mafScalingRequested)
         grid.model().historyChanged.connect(self._sync_history_actions)
         self._sync_history_actions(grid.model().can_undo(), grid.model().can_redo())
 
@@ -133,6 +143,7 @@ class TableMenuBar(QWidget):
         sep()
         chip(self.action_interpolate)
         chip(self.action_map_studio)
+        chip(self.action_maf_scaling)
         sep()
 
         self._compare_btn = QToolButton(self)
@@ -214,7 +225,8 @@ class TableMenuBar(QWidget):
     def actions_list(self):
         out = [self.action_undo_sel, self.action_redo, self.action_undo_all,
                self.action_revert, self.action_copy_sel, self.action_copy_table,
-               self.action_paste, self.action_interpolate, self.action_map_studio]
+               self.action_paste, self.action_interpolate, self.action_map_studio,
+               self.action_maf_scaling]
         out += [self.action_show_changes, self.action_compare_to, self.action_percent,
                 self.action_absolute, self.action_compare_off]
         return out

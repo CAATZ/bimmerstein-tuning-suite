@@ -1,11 +1,11 @@
-# BimmerStein Tuning Suite 0.1.0 Beta 10
+# BimmerStein Tuning Suite 0.1.0 Beta 11
 
 **ECU Calibration and Data Logging**
 
-Released 2026-07-21
+Released 2026-07-22
 
-Beta 10 fixes RomRaider-definition compatibility and table-paste behavior, and adds click-again
-closing for table entries. It remains beta software intended for testing and feedback.
+Beta 11 adds native, definition-aware MAF scaling and a managed transfer-function catalog. It
+remains beta software intended for testing and feedback.
 
 ## Windows packages
 
@@ -19,16 +19,23 @@ closing for table entries. It remains beta software intended for testing and fee
 
 ## Included changes
 
-- RomRaider 2D definitions now keep their single inherited axis when a derived definition changes
-  the axis role tag. Legacy column-oriented curves, including the MS41.1/MS41.0 heavy-throttle
-  VANOS table, open with the correct shape.
-- Full-table paste can overwrite compatible editable axes; ordinary value-only pastes leave axes
-  unchanged.
-- Main-table pastes no longer prevent Map Studio from opening. Map Studio Source and Result pastes
-  now report rejected edits accurately and apply complete-grid pastes across repeated padding.
-- Map Studio reports invalid source data without leaving a broken document behind.
-- Clicking an already-open table or parameter in the ROM tree closes its window. Programmatic
-  navigation still focuses the existing window.
+- **MAF Scale** opens directly from recognized MAF tables. Any other editable numeric 256-cell
+  table can be used after an explicit manual-destination confirmation.
+- Source data can come from the opening table or the embedded MAF catalog. Source, Result, and
+  Changes tabs use the destination table's actual shape and voltage axes.
+- The **MAF Transfer Functions** manager can edit names, default inside diameters, and complete
+  256-point curves, or add and delete user records. RomRaider table copy/paste and local undo/redo
+  use the same shortcuts as Map Studio.
+- Inches are the default diameter unit. Catalog defaults fill both source and target diameters,
+  and the arrow controls change them in 0.25-inch steps.
+- MS41, MS43, and custom electrical models are available. Negative output is floored to zero by
+  default, while advanced users can disable that policy explicitly.
+- Preview and Apply use the active ECU definition's scaling, storage range, shape, and quantization.
+  Apply is atomic and undoable; stale previews are blocked.
+- The scaler checks a definition-backed 1024/2048 MAF-mode switch when available, but never changes
+  it automatically. Missing mode information is reported rather than guessed.
+- Table fitting now preserves the deterministic 100% layout when it fits and hides the temporary
+  sizing pass to avoid visible expansion flicker.
 
 ## Existing capabilities
 
@@ -53,6 +60,10 @@ closing for table entries. It remains beta software intended for testing and fee
 
 ## Known limitations
 
+- MAF scaling currently requires an editable numeric destination containing exactly 256 cells.
+- Unknown or uncertain catalog tube diameters must be verified against the actual installation.
+- MAF mode cannot be verified when the loaded ECU definition does not expose the corresponding
+  switch.
 - Checksum algorithms for non-MS41 ECU families are not yet built in.
 - Multi-byte live-logger channel endianness still benefits from validation against additional real
   capture sessions and ECU versions.

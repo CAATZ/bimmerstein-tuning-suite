@@ -1,17 +1,17 @@
 #ifndef AppVersion
-  #define AppVersion "0.1.0b10"
+  #define AppVersion "0.1.0b11"
 #endif
 #ifndef AppDisplayVersion
-  #define AppDisplayVersion "0.1.0 Beta 10"
+  #define AppDisplayVersion "0.1.0 Beta 11"
 #endif
 #ifndef AppNumericVersion
-  #define AppNumericVersion "0.1.0.10"
+  #define AppNumericVersion "0.1.0.11"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\.tmp\release-build\dist\ecueditor"
 #endif
 #ifndef OutputDir
-  #define OutputDir "..\release\0.1.0b10"
+  #define OutputDir "..\release\0.1.0b11"
 #endif
 #ifndef PackageSuffix
   #define PackageSuffix ""
@@ -54,6 +54,9 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#SourceDir}\resources\icons\app.ico"; DestDir: "{app}"; DestName: "BimmerStein-Tuning-Suite-{#AppVersion}.ico"; Flags: ignoreversion
+
+[UninstallDelete]
+Type: filesandordirs; Name: "{app}\plugins\__pycache__"
 
 [Icons]
 Name: "{group}\BimmerStein Tuning Suite"; Filename: "{app}\BimmerStein-Tuning-Suite.exe"; WorkingDir: "{app}"; IconFilename: "{app}\BimmerStein-Tuning-Suite-{#AppVersion}.ico"

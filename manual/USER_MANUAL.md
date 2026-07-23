@@ -2,14 +2,14 @@
 
 **ECU Calibration and Data Logging**
 
-Version 0.1.0 Beta 10
+Version 0.1.0 Beta 11
 Windows x64
 
 BimmerStein Tuning Suite is a desktop calibration editor and live-data logger. The current beta
 focuses on BMW MS41 while retaining an extensible definition and plugin architecture for other
 platforms.
 
-This manual describes the Beta 10 release. Screenshots use synthetic demonstration data and do not
+This manual describes the Beta 11 release. Screenshots use synthetic demonstration data and do not
 contain a production ROM or proprietary definition.
 
 <!-- pagebreak -->
@@ -35,12 +35,12 @@ working as designed.
 
 ### Beta scope
 
-Beta 10 is intended for testing and feedback. DS2 polling has been exercised on hardware, but more
+Beta 11 is intended for testing and feedback. DS2 polling has been exercised on hardware, but more
 ECU versions, interfaces, Windows systems, and display-scaling combinations still need validation.
 Check multi-byte logger channels carefully because a channel definition may need explicit byte
 order information.
 
-Not implemented in Beta 10: ECU flashing, Subaru SSM, generic OBD-II or ELM327, J2534, and Bluetooth
+Not implemented in Beta 11: ECU flashing, Subaru SSM, generic OBD-II or ELM327, J2534, and Bluetooth
 transports.
 
 <!-- pagebreak -->
@@ -49,12 +49,12 @@ transports.
 
 ### Windows installer
 
-1. Download either Beta 10 setup executable from the project release page. The `Nuitka` filename
+1. Download either Beta 11 setup executable from the project release page. The `Nuitka` filename
    suffix identifies the compiled build; both packages contain the same application and resources.
 2. Run the installer and choose the destination folder.
 3. Start **BimmerStein Tuning Suite** from the Start menu or desktop shortcut.
 
-The Beta 10 executables are not code-signed. Windows may show an unknown-publisher warning. Confirm
+The Beta 11 executables are not code-signed. Windows may show an unknown-publisher warning. Confirm
 that the filename and SHA-256 checksum match the release before continuing.
 
 ### Portable package
@@ -233,6 +233,49 @@ applying. Apply quantizes the axes and values first, then commits both atomicall
 operation. If the opening table changes while Map Studio is open, apply is disabled until the source
 is reloaded. Numerical tools cannot determine whether a calibration is safe for an engine.
 
+### Scale a MAF table
+
+Open the destination table and choose **MAF Scale**. The action is available for editable numeric
+tables with exactly 256 cells, including the common 16 × 16 and 256 × 1 layouts. Recognized MAF
+table names open directly. If a compatible table uses another name, the suite asks whether to use
+the current table as a manual MAF destination; the table name, shape, and cell count are shown
+before anything is generated.
+
+Choose **Current table values** to scale a snapshot of the opening table, or select a managed MAF
+transfer function. Inches are the default unit. Each catalog record supplies a default inside tube
+diameter, which initially fills both source and target so the area factor remains 1.0; the arrow
+controls change either diameter by 0.25. Configure the ECU electrical model and optional series
+resistance. The built-in
+presets use an 8,980 Ω pull-up for MS41 and 4,700 Ω for MS43. Select **Custom** to enter another
+pull-up resistance. Catalog diameter information is shown when available, but uncertain or unknown
+dimensions must be verified against the actual installation.
+
+Use **MAF Transfer Functions** on the top toolbar to open the catalog manager. Select a record to
+edit its name, default inside diameter, or 256-point transfer function. **Add** creates a new local
+record, **Delete** removes the selected record, and **Save** writes the complete user catalog to the
+BimmerStein Tuning Suite configuration directory. Open MAF Scaling windows refresh their source lists after the
+manager saves; **Cancel** discards the manager session.
+
+Review the selected curve in **Source**, then choose **Generate Preview** to enable **Result** and
+**Changes**. The broad table-first workspace follows Map Studio's sizing and keeps all three views in
+the destination definition's real shape. That definition—not the MAF preset—controls the engineering-
+unit conversion, raw storage range, and quantization. Preview values use its decimal precision and
+automatically fit the available grid width. The scaler maps its 256 values in row-major order and
+refuses values the destination cannot represent; it does not silently clip output or change a
+separate ECU MAF-mode switch. Negative low-voltage samples are floored to zero by default. Clear
+**Floor negative output values to 0** only when the destination can represent negative flow and
+preserving those samples is intentional.
+
+For a 1024/2048-labelled destination, the workspace checks **MAF Mode - 2048 kg/hr** when that
+switch is exposed by the loaded definition. A confirmed mismatch blocks preview generation and the
+existing mode table can be opened for review; the scaler never changes it automatically. When the
+definition does not expose the switch, the workspace states that the mode cannot be verified.
+
+Choose **Apply to _table name_** to commit the complete proposal as one undoable table edit. If the
+destination changes after the preview is generated, Apply is disabled until the source is reloaded.
+MAF scaling runs inside the suite and does not invoke an external program or exchange table data
+through a command-line process.
+
 ### Visual edit indicators
 
 - A completed selection uses a neutral gray overlay.
@@ -354,8 +397,8 @@ family-specific external tool before flashing them elsewhere.
 
 **Reload ROM from Disk** or **F5** rereads the selected ROM's current source file. Unsaved ROM
 edits require confirmation because reload discards them and clears table undo history. Open tables
-and 3D views remain connected to the reloaded ROM. A clean Map Studio adopts the new source; a Map
-Studio with local Source edits or a generated Result preserves that work, marks it stale when the
+and 3D views remain connected to the reloaded ROM. A clean Map Studio or MAF Scaling workspace
+adopts the new source; a workspace with local work preserves that work, marks it stale when the
 opening table changed, and disables Apply until its source is reloaded. Combined full-BIN views
 validate reload through the native Full BIN identity and then resynchronize both sections. A file
 with a different size, ROM identity, or memory framing is rejected and must be opened separately.
@@ -552,7 +595,7 @@ files.
 
 - Project: [github.com/CAATZ/bimmerstein-tuning-suite](https://github.com/CAATZ/bimmerstein-tuning-suite)
 - Issues: [Report a bug or request a feature](https://github.com/CAATZ/bimmerstein-tuning-suite/issues)
-- Release notes: [Beta 10 release notes](../RELEASE_NOTES.md)
+- Release notes: [Beta 11 release notes](../RELEASE_NOTES.md)
 - Licensing: [GNU GPL and third-party notices](../THIRD_PARTY_NOTICES.md)
 
 Useful bug reports include the ECU or ROM version, Windows version, display-scaling percentage,

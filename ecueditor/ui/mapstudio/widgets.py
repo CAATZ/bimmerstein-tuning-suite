@@ -12,6 +12,7 @@ from PySide6.QtCore import (
     QSignalBlocker,
     QSize,
     Qt,
+    QTimer,
     Signal,
     Slot,
 )
@@ -32,7 +33,9 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QScrollArea,
     QSizePolicy,
+    QSplitter,
     QStyle,
     QStyleOptionHeader,
     QStyledItemDelegate,
@@ -52,6 +55,59 @@ _MIN_ZOOM_PERCENT = 20
 _MAX_ZOOM_PERCENT = 180
 _HEADER_TEXT_SAFETY = 2
 _UNSET = object()
+
+
+def content_sized_document_hint(
+    document: QWidget,
+    splitter: QSplitter,
+    inspector_scroll: QScrollArea,
+) -> QSize:
+    """Size a table workspace from its visible content and inspector."""
+
+    root = document.layout()
+    workspace = splitter.widget(0)
+    workspace_layout = None if workspace is None else workspace.layout()
+    if workspace is None or root is None or workspace_layout is None:
+        return QWidget.sizeHint(document).expandedTo(document.minimumSizeHint())
+
+    workspace_margins = workspace_layout.contentsMargins()
+    workspace_items: list[QWidget] = []
+    for index in range(workspace_layout.count()):
+        item = workspace_layout.itemAt(index)
+        widget = None if item is None else item.widget()
+        if widget is not None:
+            workspace_items.append(widget)
+    workspace_width = max(
+        (widget.sizeHint().width() for widget in workspace_items),
+        default=0,
+    ) + workspace_margins.left() + workspace_margins.right()
+    workspace_height = sum(widget.sizeHint().height() for widget in workspace_items)
+    workspace_height += workspace_margins.top() + workspace_margins.bottom()
+    workspace_height += max(0, len(workspace_items) - 1) * workspace_layout.spacing()
+
+    inspector_width = max(
+        inspector_scroll.minimumWidth(),
+        min(inspector_scroll.maximumWidth(), 290),
+    )
+    splitter_width = workspace_width + inspector_width + splitter.handleWidth()
+
+    root_margins = root.contentsMargins()
+    child_hints: list[QSize] = []
+    for index in range(root.count()):
+        item = root.itemAt(index)
+        widget = None if item is None else item.widget()
+        if widget is not None:
+            child_hints.append(
+                QSize(splitter_width, workspace_height)
+                if widget is splitter
+                else widget.sizeHint()
+            )
+    width = max((hint.width() for hint in child_hints), default=0)
+    width += root_margins.left() + root_margins.right()
+    height = sum(hint.height() for hint in child_hints)
+    height += root_margins.top() + root_margins.bottom()
+    height += max(0, len(child_hints) - 1) * root.spacing()
+    return QSize(width, height).expandedTo(document.minimumSizeHint())
 
 
 def _item_text(item: QTableWidgetItem | None) -> str:
@@ -501,15 +557,15 @@ class ArrayTableWidget(QTableWidget):
         if self.rowCount() < 1 or self.columnCount() < 1:
             return
         previous = self._zoom_percent
-        target = self._fit_zoom_percent(upper=100)
+        target = 100
         self._zoom_percent = target
         self._apply_dimensions()
 
-        # Header extents settle synchronously in _apply_dimensions(), but re-check once
-        # against the polished viewport and only allow a conservative shrink.
-        corrected = self._fit_zoom_percent(upper=target)
-        if corrected < target:
-            target = corrected
+        if (
+            self.horizontalScrollBar().maximum()
+            or self.verticalScrollBar().maximum()
+        ):
+            target = self._fit_zoom_percent(upper=99)
             self._zoom_percent = target
             self._apply_dimensions()
         if target != previous:
@@ -1578,7 +1634,11 @@ class TableZoomControls(QWidget):
         self.fit_button = QToolButton()
         self.fit_button.setText("Fit")
         self.fit_button.setToolTip("Fit the complete table into the current view")
-        self.fit_button.clicked.connect(table.fit_to_view)
+        self._fit_timer = QTimer(self)
+        self._fit_timer.setSingleShot(True)
+        self._fit_timer.timeout.connect(self._continue_fit)
+        self._fit_layout_passes = 0
+        self.fit_button.clicked.connect(self.fit_after_layout)
         for button in (
             self.zoom_out_button,
             self.reset_button,
@@ -1587,3 +1647,19 @@ class TableZoomControls(QWidget):
         ):
             layout.addWidget(button)
         table.zoomChanged.connect(lambda percent: self.reset_button.setText(f"{percent}%"))
+
+    def fit_after_layout(self) -> None:
+        self.table.setUpdatesEnabled(False)
+        self.table.set_zoom(100)
+        self._fit_layout_passes = 2
+        self._fit_timer.start()
+
+    def _continue_fit(self) -> None:
+        self._fit_layout_passes -= 1
+        if self._fit_layout_passes:
+            self._fit_timer.start()
+        else:
+            try:
+                self.table.fit_to_view()
+            finally:
+                self.table.setUpdatesEnabled(True)

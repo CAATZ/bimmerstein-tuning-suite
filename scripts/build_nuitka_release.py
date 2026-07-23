@@ -98,6 +98,10 @@ def nuitka_command(
             ROOT / "output" / "pdf" / "BimmerStein-Tuning-Suite-User-Manual.pdf",
             "BimmerStein-Tuning-Suite-User-Manual.pdf",
         ),
+        (
+            ROOT / "ecueditor" / "core" / "maf_scaling" / "data" / "catalog-v1.json",
+            "ecueditor/core/maf_scaling/data/catalog-v1.json",
+        ),
         (environment_file, "BUILD_ENVIRONMENT.txt"),
     )
     command = [

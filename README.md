@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b10"><strong>Download Beta 10</strong></a>
+  <a href="https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b11"><strong>Download Beta 11</strong></a>
   &nbsp;&middot;&nbsp;
   <a href="output/pdf/BimmerStein-Tuning-Suite-User-Manual.pdf">User Manual</a>
   &nbsp;&middot;&nbsp;
@@ -39,9 +39,9 @@ calibration workflows, but it is not a Git fork of RomRaider.
 
 ## Beta release
 
-The current public beta is **0.1.0 Beta 10** (`0.1.0b10`):
+The current public beta is **0.1.0 Beta 11** (`0.1.0b11`):
 
-[Download BimmerStein Tuning Suite 0.1.0 Beta 10](https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b10)
+[Download BimmerStein Tuning Suite 0.1.0 Beta 11](https://github.com/CAATZ/bimmerstein-tuning-suite/releases/tag/v0.1.0b11)
 
 The release provides:
 
@@ -65,6 +65,9 @@ may display an unknown-publisher warning.
 - Copy, paste, interpolate selections, compare, undo, and create revert points.
 - Open curves and maps in the integrated Map Studio to expand padded low-density tables, resample
   onto editable breakpoint grids, repair or smooth values, and review changes before one-step apply.
+- Scale the current MAF table or a managed transfer function directly into a definition-backed
+  256-cell table, with MS41, MS43, or custom electrical inputs, editable catalog defaults, and an
+  explicit override for renamed MAF tables.
 - Inspect parameter descriptions, storage addresses, scaling, ranges, and related metadata.
 - Use deterministic content-sized table windows with compact or normal table density.
 - Poll and record DS2 live data through supported serial transports.

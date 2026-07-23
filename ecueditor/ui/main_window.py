@@ -176,6 +176,9 @@ class MainWindow(QMainWindow):
         self.action_settings = QAction("&Settings…", self)
         self.action_def_manager = QAction("&Definition Manager…", self)
         self.action_def_manager.triggered.connect(self._open_definition_manager)
+        self.action_maf_manager = QAction("&MAF Transfer Functions...", self)
+        self.action_maf_manager.setToolTip("Manage MAF transfer functions")
+        self.action_maf_manager.triggered.connect(self._open_maf_manager)
         self.action_compare_images = QAction("Compare &Images…", self)
         self.action_launch_logger = QAction("&Launch Logger…", self,
                                             shortcut=QKeySequence("Ctrl+L"))
@@ -250,6 +253,7 @@ class MainWindow(QMainWindow):
                   self.action_close, self.action_refresh):
             self.menu_file.addAction(a)
         self.menu_file.addAction(self.action_def_manager)
+        self.menu_file.addAction(self.action_maf_manager)
         self.menu_file.addSeparator(); self.menu_file.addAction(self.action_quit)
         self.menu_edit = mb.addMenu("&Edit")
         self.menu_edit.addAction(self.action_settings)
@@ -408,6 +412,7 @@ class MainWindow(QMainWindow):
         self.action_refresh.setIcon(icon("refresh"))
         self.action_launch_logger.setIcon(icon("logger"))
         self.action_settings.setIcon(icon("settings"))
+        self.action_maf_manager.setIcon(icon("interpolate"))
 
         self.editor_toolbar = QToolBar("Editor", self)
         self.editor_toolbar.setObjectName("editor_toolbar")
@@ -416,6 +421,7 @@ class MainWindow(QMainWindow):
         self.editor_toolbar.addSeparator()
         self.editor_toolbar.addAction(self.action_launch_logger)
         self.editor_toolbar.addAction(self.action_settings)
+        self.editor_toolbar.addAction(self.action_maf_manager)
         self.editor_toolbar.addSeparator()
         for action in (
             self.action_workspace_studio,
@@ -600,10 +606,12 @@ class MainWindow(QMainWindow):
                 continue
             window = self.documents.window_for_document(doc)
             kind = str(window.property("documentKind")) if window is not None else ""
-            qualifier = {
-                "mapstudio": " (Map Studio)",
-                "surface": " (3D)",
-            }.get(kind, "")
+            qualifier = str(window.property("documentQualifier") or "") if window else ""
+            if not qualifier:
+                qualifier = {
+                    "mapstudio": " (Map Studio)",
+                    "surface": " (3D)",
+                }.get(kind, "")
             display_name = self._table_display_name(rom, table)
             self.documents.set_document_title(doc, f"{display_name}{qualifier} — {label}")
 
@@ -860,6 +868,8 @@ class MainWindow(QMainWindow):
         menubar = getattr(doc, "menubar", None)
         if menubar is not None and hasattr(menubar, "mapStudioRequested"):
             menubar.mapStudioRequested.connect(lambda d=doc: self._open_map_studio(d))
+        if menubar is not None and hasattr(menubar, "mafScalingRequested"):
+            menubar.mafScalingRequested.connect(lambda d=doc: self._open_maf_scaling(d))
         grid = getattr(doc, "grid", None)
         # Finalize font, row, and column metrics before DocumentArea asks for sizeHint().
         # Applying these after add_document made the MDI window fit the constructor's 42 px
@@ -974,6 +984,75 @@ class MainWindow(QMainWindow):
 
     def _apply_map_studio(self, studio, proposal) -> None:
         """Commit a Studio proposal through the opening table's normal edit model."""
+        self._apply_table_proposal(studio, proposal)
+
+    def _open_maf_scaling(self, doc) -> None:
+        """Open one native MAF Scaling document for the current table."""
+        from PySide6.QtWidgets import QMessageBox
+
+        from ecueditor.core.maf_scaling import (
+            is_known_maf_destination,
+            is_manual_maf_candidate,
+        )
+        from ecueditor.ui.design.icons import icon
+        from ecueditor.ui.maf_scaling.document import MafScalingDocument
+
+        key = self._table_frame_key(doc.rom, doc.table, "maf_scaling")
+        existing = self._open_frames.get(key)
+        if existing is not None and existing in self.documents.documents():
+            self.documents.set_active_document(existing)
+            return
+        if not is_manual_maf_candidate(doc.table):
+            QMessageBox.information(
+                self,
+                "MAF Scaling",
+                "MAF Scaling requires an editable numeric table with exactly 256 cells.",
+            )
+            return
+
+        manual_override = not is_known_maf_destination(doc.table)
+        if manual_override:
+            sx, sy = doc.table.shape()
+            answer = QMessageBox.question(
+                self,
+                "Use Current Table as MAF Destination?",
+                f'"{doc.table.name}" is not a recognized MAF table name, but it is an '
+                f"editable {sx} × {sy} table with {len(doc.table.cells)} cells.\n\n"
+                "Use it as the MAF destination? Confirm the ECU preset, pull-up resistance, "
+                "tube dimensions, units, and preview before applying.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+        scaler = MafScalingDocument(
+            doc.rom,
+            doc.table,
+            manual_override=manual_override,
+            display_settings=self._services.settings,
+        )
+        scaler.applyRequested.connect(
+            lambda proposal, target=scaler: self._apply_table_proposal(target, proposal)
+        )
+        scaler.openTableRequested.connect(
+            lambda table, rom=doc.rom: self.open_table(rom, table)
+        )
+        label = Path(doc.rom.path).name if doc.rom.path else doc.rom.definition.romid.xmlid
+        display_name = self._table_display_name(doc.rom, doc.table)
+        self.documents.add_document(
+            scaler,
+            f"{display_name} (MAF Scaling) — {label}",
+            icon=icon("logger"),
+            workspace_kind="mapstudio",
+        )
+        window = self.documents.window_for_document(scaler)
+        if window is not None:
+            window.setProperty("documentQualifier", " (MAF Scaling)")
+        self._open_frames[key] = scaler
+
+    def _apply_table_proposal(self, studio, proposal) -> None:
+        """Commit a generated proposal through the destination table's edit model."""
         key = self._table_frame_key(studio.rom, studio.table)
         source = self._open_frames.get(key)
         if source is None or source not in self.documents.documents():
@@ -1076,6 +1155,12 @@ class MainWindow(QMainWindow):
                 grid.model().refresh_compare_reference(aliases)
         for table in aliases:
             self.rom_tree.set_dirty(doc.rom, table, table.is_changed())
+        for other in self.documents.documents():
+            if other is doc or getattr(other, "rom", None) is not doc.rom:
+                continue
+            refresh_dependencies = getattr(other, "refresh_dependency_state", None)
+            if refresh_dependencies is not None:
+                refresh_dependencies()
         self.documents.set_document_dirty(doc, doc.table.is_changed())
         self.rom_tree.set_dirty(doc.rom, doc.table, doc.table.is_changed())
         self._update_window_title()
@@ -1323,6 +1408,18 @@ class MainWindow(QMainWindow):
                                          "opened ROMs)", 6000)
         dlg.applied.connect(_apply)
         dlg.exec()
+
+    def _open_maf_manager(self) -> None:
+        from ecueditor.ui.maf_scaling.manager import MafTransferFunctionManager
+
+        dialog = MafTransferFunctionManager(self)
+        if not dialog.exec():
+            return
+        for document in self.documents.documents():
+            refresh = getattr(document, "refresh_catalog", None)
+            if callable(refresh):
+                refresh()
+        self.statusBar().showMessage("MAF transfer functions updated", 4000)
 
     def _apply_settings(self, settings) -> None:
         self._services.settings = settings
